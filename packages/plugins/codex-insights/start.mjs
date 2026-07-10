@@ -2,11 +2,11 @@
 import process$1 from "node:process";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
-import { promisify } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 //#region \0rolldown/runtime.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
