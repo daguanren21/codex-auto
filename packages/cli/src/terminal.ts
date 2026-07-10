@@ -1,10 +1,12 @@
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 
-import type { ResumeJob } from "@codex-auto/core";
+import type { PrewarmJob, ResumeJob } from "@codex-auto/core";
+
+import type { RuntimeConfig } from "./runtime-config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +20,35 @@ export function buildResumeShellCommand(job: ResumeJob): string {
   if (job.effort) args.push("-c", shellQuote(`model_reasoning_effort=${job.effort}`));
   args.push("--yolo", shellQuote(job.sessionId), shellQuote("continue"));
   return `cd ${shellQuote(job.cwd)} && codex ${args.join(" ")}`;
+}
+
+export function buildPrewarmArgs(): string[] {
+  return [
+    "exec",
+    "-m",
+    "gpt-5.4-mini",
+    "-c",
+    "model_reasoning_effort=low",
+    "-a",
+    "never",
+    "--ephemeral",
+    "--ignore-rules",
+    "--skip-git-repo-check",
+    "Just say Hi",
+  ];
+}
+
+export async function runPrewarmProbe(
+  _job: PrewarmJob,
+  options: { stateDir: string; config: RuntimeConfig },
+): Promise<void> {
+  const cwd = join(options.stateDir, "prewarm-workspace");
+  await mkdir(cwd, { recursive: true });
+  await execFileAsync("codex", buildPrewarmArgs(), {
+    cwd,
+    env: { ...process.env, ...options.config.proxy },
+    timeout: 300_000,
+  });
 }
 
 function appleScriptQuote(value: string): string {

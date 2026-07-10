@@ -22,6 +22,7 @@ export interface ResumeJob extends ResumeCandidate {
 
 export interface ResumeState {
   jobs: ResumeJob[];
+  prewarmJobs?: import("./prewarm.js").PrewarmJob[];
 }
 
 function fullyUsed(value: number | undefined): boolean {

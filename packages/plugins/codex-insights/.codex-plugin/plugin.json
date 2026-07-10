@@ -1,7 +1,7 @@
 {
   "name": "codex-insights",
   "version": "0.1.0",
-  "description": "Local Codex context, token, Git, timing, speed, and rate-limit insights.",
+  "description": "Local Codex context, usage, Git, timing, speed, sessions, and rate-limit insights.",
   "author": {
     "name": "Codex Auto contributors"
   },
@@ -9,12 +9,13 @@
   "interface": {
     "displayName": "Codex Insights",
     "shortDescription": "Inspect local Codex context and usage.",
-    "longDescription": "Read local Codex rollout data to show model, context occupancy, cache ratio, tokens, timing, speed, Git state, and available rate-limit windows.",
+    "longDescription": "Read local Codex rollout data to show model, context occupancy, cache ratio, token usage by model, timing, speed, Git state, sessions, and available rate-limit windows.",
     "developerName": "Codex Auto contributors",
     "category": "Productivity",
     "capabilities": ["Read"],
     "defaultPrompt": [
       "Show my current Codex context and token usage.",
+      "Summarize my Codex usage for today.",
       "Show the current project and Git status.",
       "Check my latest Codex rate-limit windows."
     ],

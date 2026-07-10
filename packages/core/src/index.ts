@@ -23,3 +23,7 @@ export { buildResumeCandidate, reconcileResumeJobs } from "./resume/scheduler.js
 export type { ResumeCandidate, ResumeJob, ResumeState } from "./resume/scheduler.js";
 export { acquireWatcherLock, readResumeState, saveResumeState } from "./resume/state.js";
 export { runDueResumeJobs } from "./resume/runner.js";
+export { buildPrewarmJobs, normalizeWorkat, reconcilePrewarmJobs, runDuePrewarmJobs } from "./resume/prewarm.js";
+export type { PrewarmJob } from "./resume/prewarm.js";
+export { collectUsage } from "./usage.js";
+export type { UsageSummary, UsageTotals } from "./usage.js";

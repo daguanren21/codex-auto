@@ -80,6 +80,40 @@ describe("context", () => {
   });
 });
 
+describe("usage", () => {
+  it("summarizes token usage across sessions and models for an explicit range", async () => {
+    const output = capture();
+    const code = await runCli(
+      [
+        "usage",
+        "--codex-home",
+        codexHome,
+        "--since",
+        "2026-07-10T02:00:00.000Z",
+        "--until",
+        "2026-07-10T05:00:00.000Z",
+        "--json",
+      ],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(JSON.parse(output.stdout.join(""))).toMatchObject({
+      range: {
+        start: "2026-07-10T02:00:00.000Z",
+        end: "2026-07-10T05:00:00.000Z",
+      },
+      totalTokens: 166_021,
+      sessionCount: 3,
+      models: {
+        "gpt-5.4": { totalTokens: 1_010 },
+        "gpt-5.6-sol": { totalTokens: 165_011 },
+      },
+    });
+  });
+});
+
 describe("doctor", () => {
   it("reports a usable Codex home as JSON", async () => {
     const output = capture();
@@ -94,6 +128,36 @@ describe("doctor", () => {
         config: true,
         git: true,
       },
+    });
+  });
+});
+
+describe("config", () => {
+  it("persists normalized work times and proxy settings", async () => {
+    const output = capture();
+    const stateDir = await mkdtemp(join(tmpdir(), "codex-auto-config-"));
+    const code = await runCli(
+      [
+        "config",
+        "--state-dir",
+        stateDir,
+        "--workat",
+        "14:00,10:30,10:30",
+        "--http-proxy",
+        "http://127.0.0.1:7890",
+        "--json",
+      ],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(JSON.parse(output.stdout.join(""))).toEqual({
+      workat: ["10:30", "14:00"],
+      proxy: { HTTP_PROXY: "http://127.0.0.1:7890" },
+    });
+    expect(JSON.parse(await readFile(join(stateDir, "config.json"), "utf8"))).toEqual({
+      workat: ["10:30", "14:00"],
+      proxy: { HTTP_PROXY: "http://127.0.0.1:7890" },
     });
   });
 });

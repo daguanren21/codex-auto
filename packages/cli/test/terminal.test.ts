@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildResumeShellCommand } from "../src/terminal.js";
+import { buildPrewarmArgs, buildResumeShellCommand } from "../src/terminal.js";
 
 describe("buildResumeShellCommand", () => {
   it("quotes cwd and resumes with the session model and effort", () => {
@@ -20,5 +20,23 @@ describe("buildResumeShellCommand", () => {
     ).toBe(
       "cd '/workspace/project with spaces' && codex resume -m 'gpt-5.6-sol' -c 'model_reasoning_effort=high' --yolo 'session-id' 'continue'",
     );
+  });
+});
+
+describe("buildPrewarmArgs", () => {
+  it("uses the fixed low-cost ephemeral probe", () => {
+    expect(buildPrewarmArgs()).toEqual([
+      "exec",
+      "-m",
+      "gpt-5.4-mini",
+      "-c",
+      "model_reasoning_effort=low",
+      "-a",
+      "never",
+      "--ephemeral",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "Just say Hi",
+    ]);
   });
 });

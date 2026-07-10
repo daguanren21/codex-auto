@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "codex-auto": "./dist/bin.js"
+    "codex-auto": "./dist/bin.mjs"
   },
   "scripts": {
     "build": "tsdown",

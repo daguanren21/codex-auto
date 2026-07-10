@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process$1 from "node:process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { promisify } from "node:util";
 import { readFile, readdir } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -20648,45 +20648,82 @@ function timestamp(event) {
 	return Number.isNaN(value) ? null : value;
 }
 function deriveTurnPerformance(events) {
-	let startedAt = null;
+	let requestStartedAt = null;
 	let firstOutputAt = null;
-	let completedAt = null;
-	let outputTokens = 0;
+	let lastOutputAt = null;
+	let pendingInputAt = null;
+	let latest = null;
+	let latestCanExtendToTaskComplete = false;
 	let state = "running";
 	for (const event of events) {
 		const at = timestamp(event);
 		const payload = event.payload;
 		if (at === null || !payload) continue;
 		if (event.type === "event_msg" && payload.type === "task_started") {
-			startedAt = at;
+			requestStartedAt = at;
 			firstOutputAt = null;
-			completedAt = null;
-			outputTokens = 0;
+			lastOutputAt = null;
+			pendingInputAt = null;
+			latest = null;
+			latestCanExtendToTaskComplete = false;
 			state = "running";
 			continue;
 		}
-		if (startedAt === null) continue;
-		if (event.type === "response_item" && payload.type === "message" && payload.role === "assistant") firstOutputAt ??= at;
+		if (requestStartedAt === null) continue;
+		if (event.type === "response_item") {
+			const payloadType = typeof payload.type === "string" ? payload.type : "";
+			if (payloadType.endsWith("_output") || payloadType === "message" && payload.role === "user") pendingInputAt = at;
+			else {
+				firstOutputAt ??= at;
+				lastOutputAt = at;
+			}
+		}
 		if (event.type === "event_msg" && payload.type === "token_count") {
 			const usage = payload.info?.last_token_usage;
-			if (typeof usage?.output_tokens === "number") outputTokens = usage.output_tokens;
+			if (typeof usage?.output_tokens === "number" && firstOutputAt !== null) {
+				const hasNextRequest = pendingInputAt !== null;
+				latest = {
+					startedAt: requestStartedAt,
+					firstOutputAt,
+					endedAt: hasNextRequest ? lastOutputAt ?? at : at,
+					outputTokens: usage.output_tokens
+				};
+				latestCanExtendToTaskComplete = !hasNextRequest;
+				if (hasNextRequest) {
+					requestStartedAt = pendingInputAt;
+					firstOutputAt = null;
+					lastOutputAt = null;
+					pendingInputAt = null;
+				}
+			}
 		}
 		if (event.type === "event_msg" && payload.type === "task_complete") {
-			completedAt = at;
 			state = "completed";
+			if (latest && latestCanExtendToTaskComplete) latest.endedAt = at;
+			else if (!latest && requestStartedAt !== null) latest = {
+				startedAt: requestStartedAt,
+				firstOutputAt,
+				endedAt: at,
+				outputTokens: 0
+			};
 		}
 	}
-	if (startedAt === null) return null;
-	const endAt = completedAt ?? timestamp(events.at(-1) ?? {}) ?? startedAt;
+	if (requestStartedAt === null) return null;
+	const call = latest ?? {
+		startedAt: requestStartedAt,
+		firstOutputAt,
+		endedAt: timestamp(events.at(-1) ?? {}) ?? requestStartedAt,
+		outputTokens: 0
+	};
 	const result = {
 		state,
-		elapsedSeconds: Math.max(0, (endAt - startedAt) / 1e3),
-		outputTokens
+		elapsedSeconds: Math.max(0, (call.endedAt - call.startedAt) / 1e3),
+		outputTokens: call.outputTokens
 	};
-	if (firstOutputAt !== null) {
-		result.timeToFirstTokenSeconds = Math.max(0, (firstOutputAt - startedAt) / 1e3);
-		const generationSeconds = (endAt - firstOutputAt) / 1e3;
-		if (generationSeconds > 0) result.outputTokensPerSecond = outputTokens / generationSeconds;
+	if (call.firstOutputAt !== null) {
+		result.timeToFirstTokenSeconds = Math.max(0, (call.firstOutputAt - call.startedAt) / 1e3);
+		const generationSeconds = (call.endedAt - call.firstOutputAt) / 1e3;
+		if (generationSeconds > 0 && call.outputTokens > 0) result.outputTokensPerSecond = call.outputTokens / generationSeconds;
 	}
 	return result;
 }
@@ -20734,6 +20771,13 @@ function rateLimits(value) {
 		secondary: parseWindow(limits.secondary)
 	};
 }
+function isNormalAssistantMessage(payload) {
+	if (payload.type !== "message" || payload.role !== "assistant" || !Array.isArray(payload.content)) return false;
+	const text = payload.content.map((item) => object(item)?.text).filter((item) => typeof item === "string").join(" ").trim();
+	if (!text) return false;
+	const lowered = text.toLowerCase();
+	return !lowered.includes("usage limit") && !lowered.includes("try again at");
+}
 async function readSessionSnapshot(path) {
 	let sessionId;
 	let cwd;
@@ -20744,6 +20788,8 @@ async function readSessionSnapshot(path) {
 	let maxTokens;
 	let limits = null;
 	let stale = false;
+	let limitObservedAt;
+	let lastAssistantAt;
 	const performanceEvents = [];
 	const lines = createInterface({
 		input: createReadStream(path, { encoding: "utf8" }),
@@ -20765,6 +20811,7 @@ async function readSessionSnapshot(path) {
 			...typeof event.type === "string" ? { type: event.type } : {},
 			payload
 		});
+		if (event.type === "response_item" && timestamp && isNormalAssistantMessage(payload)) lastAssistantAt = timestamp;
 		if (event.type === "session_meta") {
 			if (typeof payload.session_id === "string") sessionId = payload.session_id;
 			if (typeof payload.cwd === "string") cwd = payload.cwd;
@@ -20784,6 +20831,7 @@ async function readSessionSnapshot(path) {
 		}
 		if (event.type !== "event_msg" || payload.type !== "token_count") continue;
 		limits = rateLimits(payload.rate_limits);
+		if (timestamp && ((limits?.primary?.usedPercent ?? 0) >= 100 || (limits?.secondary?.usedPercent ?? 0) >= 100)) limitObservedAt = timestamp;
 		const info = object(payload.info);
 		if (!info) {
 			if (lastUsage) stale = true;
@@ -20817,7 +20865,9 @@ async function readSessionSnapshot(path) {
 		cacheRatio: lastUsage.inputTokens > 0 ? lastUsage.cachedInputTokens / lastUsage.inputTokens : 0,
 		limits,
 		stale,
-		...performance ? { performance } : {}
+		...performance ? { performance } : {},
+		...limitObservedAt ? { limitObservedAt } : {},
+		...lastAssistantAt ? { lastAssistantAt } : {}
 	};
 }
 //#endregion
@@ -20838,13 +20888,23 @@ async function collectRollouts(root) {
 	return paths;
 }
 async function findLatestSession(options) {
-	let latest = null;
+	const sessions = await listSessions({ codexHome: options.codexHome });
+	if (!options.cwd) return sessions[0] ?? null;
+	const exact = sessions.find((session) => session.cwd === options.cwd);
+	if (exact) return exact;
+	return sessions.filter((session) => {
+		const path = relative(session.cwd, options.cwd);
+		return path !== "" && path !== ".." && !path.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(path);
+	}).sort((left, right) => right.cwd.length - left.cwd.length || right.updatedAt.getTime() - left.updatedAt.getTime())[0] ?? null;
+}
+async function listSessions(options) {
+	const sessions = [];
 	for (const path of await collectRollouts(join(options.codexHome, "sessions"))) {
 		const snapshot = await readSessionSnapshot(path);
 		if (!snapshot || options.cwd && snapshot.cwd !== options.cwd) continue;
-		if (!latest || snapshot.updatedAt > latest.updatedAt) latest = snapshot;
+		sessions.push(snapshot);
 	}
-	return latest;
+	return sessions.sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
 }
 //#endregion
 //#region ../core/src/git.ts
@@ -20911,6 +20971,91 @@ async function getCurrentStatus(options) {
 	};
 }
 //#endregion
+//#region ../core/src/usage.ts
+function emptyTotals() {
+	return {
+		inputTokens: 0,
+		cachedInputTokens: 0,
+		outputTokens: 0,
+		reasoningOutputTokens: 0,
+		totalTokens: 0
+	};
+}
+function add(target, usage) {
+	const input = usage.input_tokens;
+	const cached = usage.cached_input_tokens;
+	const output = usage.output_tokens;
+	const total = usage.total_tokens;
+	if (![
+		input,
+		cached,
+		output,
+		total
+	].every((value) => typeof value === "number" && Number.isFinite(value))) return false;
+	target.inputTokens += input;
+	target.cachedInputTokens += cached;
+	target.outputTokens += output;
+	target.reasoningOutputTokens += typeof usage.reasoning_output_tokens === "number" ? usage.reasoning_output_tokens : 0;
+	target.totalTokens += total;
+	return true;
+}
+async function rollouts(root) {
+	let entries;
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+	const paths = [];
+	for (const entry of entries) {
+		const path = join(root, entry.name);
+		if (entry.isDirectory()) paths.push(...await rollouts(path));
+		else if (entry.isFile() && entry.name.endsWith(".jsonl")) paths.push(path);
+	}
+	return paths;
+}
+async function collectUsage(options) {
+	const totals = emptyTotals();
+	const models = {};
+	const usedSessions = /* @__PURE__ */ new Set();
+	for (const path of await rollouts(join(options.codexHome, "sessions"))) {
+		let model = "unknown";
+		let sessionId = path;
+		const lines = createInterface({
+			input: createReadStream(path, { encoding: "utf8" }),
+			crlfDelay: Infinity
+		});
+		for await (const line of lines) {
+			let event;
+			try {
+				event = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			const payload = event.payload;
+			if (!payload) continue;
+			if (event.type === "session_meta" && typeof payload.session_id === "string") sessionId = payload.session_id;
+			if (event.type === "turn_context" && typeof payload.model === "string") model = payload.model;
+			if (event.type !== "event_msg" || payload.type !== "token_count") continue;
+			const at = typeof event.timestamp === "string" ? new Date(event.timestamp) : null;
+			if (!at || Number.isNaN(at.getTime()) || at < options.start || at >= options.end) continue;
+			const usage = payload.info?.last_token_usage;
+			if (!usage) continue;
+			const modelTotals = models[model] ?? emptyTotals();
+			if (!add(modelTotals, usage)) continue;
+			models[model] = modelTotals;
+			add(totals, usage);
+			usedSessions.add(sessionId);
+		}
+	}
+	return {
+		...totals,
+		cacheRatio: totals.inputTokens > 0 ? totals.cachedInputTokens / totals.inputTokens : 0,
+		sessionCount: usedSessions.size,
+		models
+	};
+}
+//#endregion
 //#region src/service.ts
 function result(data, summary) {
 	return {
@@ -20921,18 +21066,21 @@ function result(data, summary) {
 		structuredContent: data
 	};
 }
+function errorResult(summary) {
+	return {
+		content: [{
+			type: "text",
+			text: summary
+		}],
+		structuredContent: { available: false },
+		isError: true
+	};
+}
 function createStatusService() {
 	return {
 		async getStatus(input) {
 			const snapshot = await getCurrentStatus(input);
-			if (!snapshot) return {
-				content: [{
-					type: "text",
-					text: `No Codex session found for ${input.cwd}`
-				}],
-				structuredContent: { available: false },
-				isError: true
-			};
+			if (!snapshot) return errorResult(`No Codex session found for ${input.cwd}`);
 			return result({
 				available: true,
 				...snapshot
@@ -20940,14 +21088,7 @@ function createStatusService() {
 		},
 		async getContextStats(input) {
 			const snapshot = await getCurrentStatus(input);
-			if (!snapshot) return {
-				content: [{
-					type: "text",
-					text: `No Codex session found for ${input.cwd}`
-				}],
-				structuredContent: { available: false },
-				isError: true
-			};
+			if (!snapshot) return errorResult(`No Codex session found for ${input.cwd}`);
 			const data = {
 				available: true,
 				model: snapshot.model?.name ?? null,
@@ -20975,6 +21116,43 @@ function createStatusService() {
 				secondary: null
 			};
 			return result(data, data.available ? JSON.stringify(data) : "Rate limits unavailable");
+		},
+		async getUsageSummary(input) {
+			const now = /* @__PURE__ */ new Date();
+			const start = input.start ? new Date(input.start) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+			const end = input.end ? new Date(input.end) : now;
+			if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) return errorResult("Usage range must contain valid dates with start before end");
+			const summary = await collectUsage({
+				codexHome: input.codexHome,
+				start,
+				end
+			});
+			return result({
+				available: true,
+				range: {
+					start: start.toISOString(),
+					end: end.toISOString()
+				},
+				...summary
+			}, `${summary.totalTokens} tokens across ${summary.sessionCount} sessions`);
+		},
+		async listSessions(input) {
+			const sessions = (await listSessions(input)).map((session) => ({
+				sessionId: session.sessionId,
+				cwd: session.cwd,
+				updatedAt: session.updatedAt.toISOString(),
+				model: session.model?.name ?? null,
+				effort: session.model?.effort ?? null,
+				contextUsage: Number(session.context.ratio.toFixed(6)),
+				contextTokens: session.context.usedTokens,
+				maxContextTokens: session.context.maxTokens,
+				cumulativeTokens: session.cumulativeTokens,
+				stale: session.stale
+			}));
+			return result({
+				available: true,
+				sessions
+			}, `${sessions.length} local Codex sessions`);
 		}
 	};
 }
@@ -21009,6 +21187,24 @@ function createMcpServer() {
 		inputSchema,
 		annotations: { readOnlyHint: true }
 	}, async (input) => service.getRateLimits(resolve(input)));
+	server.registerTool("get_usage_summary", {
+		description: "Summarize local Codex token usage across sessions and models for a time range.",
+		inputSchema: {
+			codexHome: inputSchema.codexHome,
+			start: string().optional().describe("Inclusive ISO date-time; defaults to the start of today"),
+			end: string().optional().describe("Exclusive ISO date-time; defaults to now")
+		},
+		annotations: { readOnlyHint: true }
+	}, async (input) => service.getUsageSummary({
+		codexHome: input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+		...input.start ? { start: input.start } : {},
+		...input.end ? { end: input.end } : {}
+	}));
+	server.registerTool("list_sessions", {
+		description: "List local Codex sessions and their model/context metadata without conversation content.",
+		inputSchema: { codexHome: inputSchema.codexHome },
+		annotations: { readOnlyHint: true }
+	}, async (input) => service.listSessions({ codexHome: input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex") }));
 	return server;
 }
 //#endregion

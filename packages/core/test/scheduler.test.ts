@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +105,15 @@ describe("resume state persistence", () => {
     const lock = await acquireWatcherLock(lockPath);
     await expect(acquireWatcherLock(lockPath)).rejects.toThrow("watcher is already running");
     await lock.release();
+  });
+
+  it("quarantines corrupt state before returning an empty state", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-auto-corrupt-state-"));
+    const statePath = join(dir, "state.json");
+    await writeFile(statePath, "not json", "utf8");
+
+    await expect(readResumeState(statePath)).resolves.toEqual({ jobs: [] });
+    expect(await readdir(dir)).toEqual([expect.stringMatching(/^state\.json\.corrupt-\d+$/)]);
   });
 });
 

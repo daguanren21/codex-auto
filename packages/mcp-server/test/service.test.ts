@@ -34,4 +34,39 @@ describe("Codex Insights MCP service", () => {
 
     expect(result.structuredContent).toEqual({ available: false, primary: null, secondary: null });
   });
+
+  it("returns usage totals for a requested time range", async () => {
+    const service = createStatusService();
+    const result = await service.getUsageSummary({
+      codexHome,
+      start: "2026-07-10T02:00:00.000Z",
+      end: "2026-07-10T05:00:00.000Z",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      range: {
+        start: "2026-07-10T02:00:00.000Z",
+        end: "2026-07-10T05:00:00.000Z",
+      },
+      totalTokens: 166_021,
+      sessionCount: 3,
+      models: {
+        "gpt-5.6-sol": { totalTokens: 165_011 },
+      },
+    });
+  });
+
+  it("lists local sessions without conversation content", async () => {
+    const service = createStatusService();
+    const result = await service.listSessions({ codexHome });
+
+    expect(result.structuredContent.available).toBe(true);
+    expect(result.structuredContent.sessions.length).toBeGreaterThan(0);
+    expect(result.structuredContent.sessions[0]).toEqual(expect.objectContaining({
+      sessionId: expect.any(String),
+      cwd: expect.any(String),
+      contextUsage: expect.any(Number),
+    }));
+    expect(JSON.stringify(result.structuredContent)).not.toContain("Just say Hi");
+  });
 });

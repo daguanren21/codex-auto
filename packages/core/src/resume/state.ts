@@ -4,12 +4,25 @@ import { dirname } from "node:path";
 import type { ResumeState } from "./scheduler.js";
 
 export async function readResumeState(path: string): Promise<ResumeState> {
+  let contents: string;
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as { jobs?: unknown };
-    return { jobs: Array.isArray(value.jobs) ? (value.jobs as ResumeState["jobs"]) : [] };
+    contents = await readFile(path, "utf8");
   } catch {
     return { jobs: [] };
   }
+  let value: { jobs?: unknown; prewarmJobs?: unknown };
+  try {
+    value = JSON.parse(contents) as typeof value;
+  } catch {
+    await rename(path, `${path}.corrupt-${Date.now()}`).catch(() => undefined);
+    return { jobs: [] };
+  }
+  return {
+    jobs: Array.isArray(value.jobs) ? (value.jobs as ResumeState["jobs"]) : [],
+    ...(Array.isArray(value.prewarmJobs)
+      ? { prewarmJobs: value.prewarmJobs as NonNullable<ResumeState["prewarmJobs"]> }
+      : {}),
+  };
 }
 
 export async function saveResumeState(path: string, state: ResumeState): Promise<void> {
@@ -36,4 +49,3 @@ export async function acquireWatcherLock(path: string): Promise<{ release(): Pro
     },
   };
 }
-

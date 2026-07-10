@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "codex-auto-mcp": "./dist/bin.js"
+    "codex-auto-mcp": "./dist/bin.mjs"
   },
   "scripts": {
     "build": "tsdown && cp dist/bin.mjs ../plugins/codex-insights/start.mjs",

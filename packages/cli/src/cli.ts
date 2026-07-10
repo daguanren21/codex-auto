@@ -6,22 +6,28 @@ import { promisify } from "node:util";
 
 import {
   acquireWatcherLock,
+  buildPrewarmJobs,
   buildResumeCandidate,
   classifyMetric,
+  collectUsage,
   formatTokens,
   getCurrentStatus,
   listSessions,
+  normalizeWorkat,
   readResumeState,
+  reconcilePrewarmJobs,
   reconcileResumeJobs,
   renderStatusLine,
   runDueResumeJobs,
+  runDuePrewarmJobs,
   saveResumeState,
   type CurrentStatusSnapshot,
 } from "@codex-auto/core";
 import { Command } from "commander";
 import pc from "picocolors";
 
-import { launchResumeTerminal } from "./terminal.js";
+import { readRuntimeConfig, saveRuntimeConfig } from "./runtime-config.js";
+import { launchResumeTerminal, runPrewarmProbe } from "./terminal.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +44,17 @@ interface StatusOptions {
   cwd: string;
   color: "auto" | "always" | "never";
   json?: boolean;
+}
+
+interface UsageOptions {
+  codexHome: string;
+  color: "auto" | "always" | "never";
+  json?: boolean;
+  today?: boolean;
+  recent?: string;
+  date?: string;
+  since?: string;
+  until?: string;
 }
 
 function addStatusOptions(command: Command, includeJson: boolean): Command {
@@ -59,7 +76,14 @@ function colorEnabled(mode: StatusOptions["color"], io: CliIo): boolean {
 
 function asStatusLine(snapshot: CurrentStatusSnapshot) {
   return {
-    ...(snapshot.model ? { model: { name: snapshot.model.name, effort: snapshot.model.effort } } : {}),
+    ...(snapshot.model
+      ? {
+          model: {
+            name: snapshot.model.name,
+            ...(snapshot.model.effort ? { effort: snapshot.model.effort } : {}),
+          },
+        }
+      : {}),
     ...(snapshot.git ? { git: snapshot.git } : {}),
     context: snapshot.context,
     cacheRatio: snapshot.cacheRatio,
@@ -112,6 +136,61 @@ function renderContext(snapshot: CurrentStatusSnapshot, color: boolean): string 
   return `${lines.join("\n")}\n`;
 }
 
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function parseUsageRange(options: UsageOptions, now = new Date()): { start: Date; end: Date } {
+  if (options.since || options.until) {
+    const start = options.since ? new Date(options.since) : startOfLocalDay(now);
+    const end = options.until ? new Date(options.until) : now;
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+      throw new Error("Usage range must contain valid dates with start before end");
+    }
+    return { start, end };
+  }
+  if (options.date) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(options.date);
+    if (!match) throw new Error("--date must use YYYY-MM-DD");
+    const start = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (
+      start.getFullYear() !== Number(match[1])
+      || start.getMonth() !== Number(match[2]) - 1
+      || start.getDate() !== Number(match[3])
+    ) throw new Error("--date is not a valid calendar date");
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return { start, end };
+  }
+  if (options.recent) {
+    const days = Number(options.recent);
+    if (!Number.isInteger(days) || days < 1) throw new Error("--recent must be a positive number of days");
+    return { start: new Date(now.getTime() - days * 86_400_000), end: now };
+  }
+  return { start: startOfLocalDay(now), end: now };
+}
+
+function renderUsage(
+  summary: Awaited<ReturnType<typeof collectUsage>>,
+  range: { start: Date; end: Date },
+  color: boolean,
+): string {
+  const colors = pc.createColors(color);
+  const lines = [
+    colors.dim(`${range.start.toISOString()} -> ${range.end.toISOString()}`),
+    `${colors.cyan("Total".padEnd(11))}${colors.bold(colors.cyan(formatTokens(summary.totalTokens)))}`,
+    `${colors.blue("Input".padEnd(11))}${colors.blue(formatTokens(summary.inputTokens))}`,
+    `${colors.green("Cached".padEnd(11))}${colors.green(`${formatTokens(summary.cachedInputTokens)}  ${(summary.cacheRatio * 100).toFixed(1)}%`)}`,
+    `${colors.magenta("Output".padEnd(11))}${colors.magenta(formatTokens(summary.outputTokens))}`,
+    `${colors.yellow("Reasoning".padEnd(11))}${colors.yellow(formatTokens(summary.reasoningOutputTokens))}`,
+    `${colors.white("Sessions".padEnd(11))}${summary.sessionCount}`,
+  ];
+  for (const [model, totals] of Object.entries(summary.models).sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(`${colors.blue(model.padEnd(20))}${colors.cyan(formatTokens(totals.totalTokens))}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -138,7 +217,9 @@ async function doctor(codexHome: string) {
 }
 
 async function runWatchCycle(options: { codexHome: string; stateDir: string }, io: CliIo): Promise<void> {
+  const now = new Date();
   const statePath = join(options.stateDir, "state.json");
+  const config = await readRuntimeConfig(join(options.stateDir, "config.json"));
   const sessions = await listSessions({ codexHome: options.codexHome });
   const candidates = sessions.map(buildResumeCandidate).filter((candidate) => candidate !== null);
   const resumedSessionIds = new Set(
@@ -157,18 +238,32 @@ async function runWatchCycle(options: { codexHome: string; stateDir: string }, i
   const reconciled = reconcileResumeJobs({
     candidates,
     previous,
-    now: new Date(),
+    now,
     resumedSessionIds,
   });
   const state = await runDueResumeJobs({
     state: reconciled,
-    now: new Date(),
+    now,
     resumedSessionIds,
     trigger: launchResumeTerminal,
   });
-  await saveResumeState(statePath, state);
+  const desiredPrewarm = buildPrewarmJobs({ workat: config.workat, now });
+  const reconciledPrewarm = reconcilePrewarmJobs({
+    desired: desiredPrewarm,
+    previous: previous.prewarmJobs ?? [],
+    now,
+  });
+  const resumeTriggered = state.jobs.some((job) => job.status === "triggered" && job.triggeredAt === now.toISOString());
+  const prewarmJobs = await runDuePrewarmJobs({
+    jobs: reconciledPrewarm,
+    now,
+    suppress: resumeTriggered,
+    trigger: (job) => runPrewarmProbe(job, { stateDir: options.stateDir, config }),
+  });
+  await saveResumeState(statePath, { ...state, prewarmJobs });
   const pending = state.jobs.filter((job) => job.status === "pending").length;
-  io.stdout(`ok pending=${pending} sessions=${sessions.length}\n`);
+  const prewarm = prewarmJobs.filter((job) => job.status === "pending").length;
+  io.stdout(`ok pending=${pending} prewarm=${prewarm} sessions=${sessions.length}\n`);
 }
 
 async function loadStatus(options: StatusOptions, io: CliIo): Promise<CurrentStatusSnapshot | null> {
@@ -222,6 +317,29 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   });
 
   program
+    .command("usage")
+    .option("--codex-home <path>", "Codex home directory", join(homedir(), ".codex"))
+    .option("--today", "Summarize the current local day")
+    .option("--recent <days>", "Summarize the trailing number of days")
+    .option("--date <YYYY-MM-DD>", "Summarize one local calendar day")
+    .option("--since <date>", "Range start as an ISO date")
+    .option("--until <date>", "Range end as an ISO date")
+    .option("--color <mode>", "Color mode: auto, always, never", "auto")
+    .option("--json", "Print structured JSON")
+    .action(async (options: UsageOptions) => {
+      const range = parseUsageRange(options);
+      const summary = await collectUsage({ codexHome: options.codexHome, ...range });
+      if (options.json) {
+        io.stdout(`${JSON.stringify({
+          range: { start: range.start.toISOString(), end: range.end.toISOString() },
+          ...summary,
+        }, null, 2)}\n`);
+        return;
+      }
+      io.stdout(renderUsage(summary, range, colorEnabled(options.color, io)));
+    });
+
+  program
     .command("doctor")
     .option("--codex-home <path>", "Codex home directory", join(homedir(), ".codex"))
     .option("--json", "Print structured JSON")
@@ -235,6 +353,36 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     });
 
   program
+    .command("config")
+    .option("--state-dir <path>", "State directory", join(homedir(), ".codex-auto"))
+    .option("--workat <times>", "Comma-separated local work times in HH:MM format")
+    .option("--clear-workat", "Remove all work times")
+    .option("--http-proxy <url>", "Set HTTP_PROXY")
+    .option("--https-proxy <url>", "Set HTTPS_PROXY")
+    .option("--all-proxy <url>", "Set ALL_PROXY")
+    .option("--json", "Print structured JSON")
+    .action(async (options: {
+      stateDir: string;
+      workat?: string;
+      clearWorkat?: boolean;
+      httpProxy?: string;
+      httpsProxy?: string;
+      allProxy?: string;
+      json?: boolean;
+    }) => {
+      const path = join(options.stateDir, "config.json");
+      const config = await readRuntimeConfig(path);
+      if (options.clearWorkat) config.workat = [];
+      else if (options.workat !== undefined) config.workat = normalizeWorkat(options.workat.split(","));
+      if (options.httpProxy !== undefined) config.proxy.HTTP_PROXY = options.httpProxy;
+      if (options.httpsProxy !== undefined) config.proxy.HTTPS_PROXY = options.httpsProxy;
+      if (options.allProxy !== undefined) config.proxy.ALL_PROXY = options.allProxy;
+      await saveRuntimeConfig(path, config);
+      if (options.json) io.stdout(`${JSON.stringify(config, null, 2)}\n`);
+      else io.stdout(`saved ${path}\n`);
+    });
+
+  program
     .command("watch")
     .option("--once", "Run one reconciliation cycle")
     .option("--codex-home <path>", "Codex home directory", join(homedir(), ".codex"))
@@ -245,10 +393,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       try {
         do {
           await runWatchCycle(options, io);
-          if (options.once) break;
-          const seconds = Math.max(1, Number(options.interval) || 1_800);
-          await new Promise((resolve) => setTimeout(resolve, seconds * 1_000));
-        } while (true);
+          if (!options.once) {
+            const seconds = Math.max(1, Number(options.interval) || 1_800);
+            await new Promise((resolve) => setTimeout(resolve, seconds * 1_000));
+          }
+        } while (!options.once);
       } finally {
         await lock.release();
       }
