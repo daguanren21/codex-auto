@@ -88,7 +88,7 @@ codex-auto cmux uninstall [--config <path>]
 
 - Invalid interval values fail before the watcher starts.
 - Missing sessions produce the idle dashboard and exit successfully in one-shot mode.
-- Unsupported or absent cmux installations do not affect `dock` rendering; only `cmux install` reports the missing integration prerequisite.
+- `dock` rendering and `cmux install` are filesystem-only and do not require a running cmux app or socket; an installed configuration becomes active the next time cmux loads the Dock.
 - Configuration parse or write errors include the affected path and do not overwrite existing data.
 - Watch refresh errors remain visible for one frame and are retried at the next scheduled refresh.
 - Uninstall is idempotent and never deletes the global Dock file solely because its controls array becomes empty.
