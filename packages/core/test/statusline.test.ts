@@ -69,6 +69,17 @@ describe("renderStatusLine", () => {
     expect(stripTmux(rendered)).toContain("feature/#[fg=red]");
   });
 
+  it("preserves tmux escaping when a hostile branch must be truncated", () => {
+    const rendered = renderStatusLine(
+      { ...snapshot, git: { ...snapshot.git!, branch: "#[fg=red]-a-very-long-branch-name" } },
+      { color: true, width: 30, format: "tmux" },
+    );
+
+    expect(rendered).toContain("##[fg=red]");
+    expect(stripTmux(rendered)).toContain("#[fg=red]");
+    expect(stringWidth(stripTmux(rendered))).toBeLessThanOrEqual(30);
+  });
+
   it.each([30, 40, 60])("keeps tmux output within %i visible columns", (width) => {
     const rendered = renderStatusLine(snapshot, { color: true, width, format: "tmux" });
     const plain = stripTmux(rendered);

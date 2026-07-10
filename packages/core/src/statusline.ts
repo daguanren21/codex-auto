@@ -1,5 +1,3 @@
-import { stripVTControlCharacters } from "node:util";
-
 import pc from "picocolors";
 import stringWidth from "string-width";
 
@@ -132,6 +130,18 @@ function renderSegments(segments: Segment[], options: StatusLineOptions): string
   return segments.map((segment) => renderAnsiSegment(segment, options.color)).join(colors.dim(" | "));
 }
 
+function truncateToWidth(value: string, width: number): string {
+  let result = "";
+  let used = 0;
+  for (const character of value) {
+    const characterWidth = stringWidth(character);
+    if (used + characterWidth > width) break;
+    result += character;
+    used += characterWidth;
+  }
+  return result;
+}
+
 export function renderStatusLine(snapshot: StatusLineSnapshot, options: StatusLineOptions): string {
   let compactContext = false;
   let segments = createSegments(snapshot, compactContext);
@@ -149,8 +159,7 @@ export function renderStatusLine(snapshot: StatusLineSnapshot, options: StatusLi
 
   const rendered = renderSegments(segments, options);
   if (lineWidth(segments) <= options.width) return rendered;
-  return stripVTControlCharacters(renderSegments(segments, { ...options, format: "plain" })).slice(
-    0,
-    Math.max(0, options.width),
-  );
+  const plain = truncateToWidth(renderSegments(segments, { ...options, format: "plain" }), Math.max(0, options.width));
+  if (options.format === "tmux") return `#[fg=#6b7280]${tmuxEscape(plain)}#[default]`;
+  return plain;
 }
