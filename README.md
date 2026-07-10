@@ -41,7 +41,7 @@ codex-auto tmux install
 tmux source-file ~/.tmux.conf
 ```
 
-Codex must be running inside tmux for the bar to be visible. The managed block follows the active pane working directory, refreshes every 10 seconds, and keeps a render-ready cache under `~/.codex-auto/statusline-cache`. It is inserted before TPM initialization without changing existing plugin declarations or key bindings.
+Codex must be running inside tmux for the bar to be visible. The managed block follows the active pane working directory, requests a 10-second tmux refresh, and keeps a render-ready cache under `~/.codex-auto/statusline-cache`. Existing plugins may use a shorter global tmux interval; the 10-second cache still prevents rollout scans from running more often. The block is inserted before TPM initialization without changing existing plugin declarations or key bindings.
 
 The renderer supports `--format ansi|plain|tmux`, `--width`, and `--cache-ttl`. Tmux format uses native `#[...]` styles and never emits ANSI escapes. This integration is separate from Codex's native `/statusline` and from the read-only Codex Insights MCP plugin.
 

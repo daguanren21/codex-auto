@@ -13,6 +13,6 @@ tmux source-file ~/.tmux.conf
 codex-auto tmux uninstall
 ```
 
-The installer preserves existing config, inserts one idempotent block before TPM initialization, and refreshes every 10 seconds. It renders the active pane's Codex session through `statusline --format tmux`, with a short-lived cache under `~/.codex-auto/statusline-cache`.
+The installer preserves existing config and inserts one idempotent block before TPM initialization. It requests a 10-second tmux refresh and renders the active pane's Codex session through `statusline --format tmux`, with a 10-second cache under `~/.codex-auto/statusline-cache`. Existing plugins may select a shorter global tmux interval without causing more frequent rollout scans.
 
 `statusline` also supports `--format ansi|plain|tmux`, `--width <columns>`, `--cache-ttl <seconds>`, and `--state-dir <path>`. Tmux output uses native formatting rather than ANSI. This status bar is independent of Codex's native `/statusline` and the Codex Insights MCP plugin.
