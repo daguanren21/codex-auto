@@ -1,0 +1,20 @@
+{
+  "name": "@codex-auto/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "codex-auto": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "oxlint src test",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codex-auto/core": "workspace:*",
+    "commander": "^15.0.0",
+    "picocolors": "^1.1.1"
+  }
+}
