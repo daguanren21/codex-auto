@@ -29,11 +29,34 @@ The active rollout model is authoritative. `~/.codex/config.toml` is used only w
 
 Token values are adaptive: raw below `1,000`, `k` below `1m`, and `m` from one million upward. Context is green below 60%, yellow from 60% to 84.9%, and bold red from 85%. Time is green below 15 seconds, yellow through 45 seconds, then red. Speed is green from 50 tok/s, yellow from 15 tok/s, then red. Model, Git, cache, output, reasoning, and totals use stable distinct colors. `NO_COLOR`, `FORCE_COLOR`, and `--color auto|always|never` are supported; JSON never contains ANSI.
 
-For tmux:
+### Tmux Status Bar
+
+Build the CLI, make the executable available on `PATH`, and install the managed tmux block:
+
+```bash
+pnpm build
+install -d ~/.local/bin
+ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/codex-auto
+codex-auto tmux install
+tmux source-file ~/.tmux.conf
+```
+
+Codex must be running inside tmux for the bar to be visible. The managed block follows the active pane working directory, refreshes every 10 seconds, and keeps a render-ready cache under `~/.codex-auto/statusline-cache`. It is inserted before TPM initialization without changing existing plugin declarations or key bindings.
+
+The renderer supports `--format ansi|plain|tmux`, `--width`, and `--cache-ttl`. Tmux format uses native `#[...]` styles and never emits ANSI escapes. This integration is separate from Codex's native `/statusline` and from the read-only Codex Insights MCP plugin.
+
+Remove only the managed block with:
+
+```bash
+codex-auto tmux uninstall
+tmux source-file ~/.tmux.conf
+```
+
+To configure tmux manually instead, use native tmux output and pass the active pane path and client width:
 
 ```tmux
-set -g status-interval 5
-set -g status-right '#(codex-auto statusline --cwd "#{pane_current_path}" --color always)'
+set -g status-interval 10
+set -g status-right '#(codex-auto statusline --format tmux --cache-ttl 10 --cwd #{q:pane_current_path} --width #{client_width})'
 ```
 
 ## Usage Totals
