@@ -22,11 +22,13 @@ import {
   runDuePrewarmJobs,
   saveResumeState,
   type CurrentStatusSnapshot,
+  type StatusLineFormat,
 } from "@codex-auto/core";
 import { Command } from "commander";
 import pc from "picocolors";
 
 import { readRuntimeConfig, saveRuntimeConfig } from "./runtime-config.js";
+import { readCachedStatusLine } from "./status-cache.js";
 import { launchResumeTerminal, runPrewarmProbe } from "./terminal.js";
 
 const execFileAsync = promisify(execFile);
@@ -44,6 +46,13 @@ interface StatusOptions {
   cwd: string;
   color: "auto" | "always" | "never";
   json?: boolean;
+}
+
+interface StatusLineCliOptions extends StatusOptions {
+  format: StatusLineFormat;
+  width?: string;
+  cacheTtl: string;
+  stateDir: string;
 }
 
 interface UsageOptions {
@@ -72,6 +81,19 @@ function colorEnabled(mode: StatusOptions["color"], io: CliIo): boolean {
   if (io.env.NO_COLOR !== undefined) return false;
   if (io.env.FORCE_COLOR !== undefined && io.env.FORCE_COLOR !== "0") return true;
   return io.isTTY;
+}
+
+function parseNonNegativeNumber(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative number`);
+  return parsed;
+}
+
+function parseWidth(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--width must be a positive integer");
+  return parsed;
 }
 
 function asStatusLine(snapshot: CurrentStatusSnapshot) {
@@ -279,19 +301,45 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   });
   let exitCode = 0;
 
-  addStatusOptions(program.command("statusline"), false).action(async (options: StatusOptions) => {
-    const snapshot = await loadStatus(options, io);
-    if (!snapshot) {
-      exitCode = 1;
-      return;
-    }
-    io.stdout(
-      `${renderStatusLine(asStatusLine(snapshot), {
-        color: colorEnabled(options.color, io),
-        width: io.columns,
-      })}\n`,
-    );
-  });
+  addStatusOptions(program.command("statusline"), false)
+    .option("--format <format>", "Output format: ansi, plain, tmux", "ansi")
+    .option("--width <columns>", "Visible output width")
+    .option("--cache-ttl <seconds>", "Status cache lifetime", "10")
+    .option("--state-dir <path>", "State directory", join(homedir(), ".codex-auto"))
+    .action(async (options: StatusLineCliOptions) => {
+      if (!(["ansi", "plain", "tmux"] as string[]).includes(options.format)) {
+        throw new Error("--format must be ansi, plain, or tmux");
+      }
+      const snapshot = await readCachedStatusLine(
+        {
+          cacheDir: join(options.stateDir, "statusline-cache"),
+          codexHome: options.codexHome,
+          cwd: options.cwd,
+          ttlSeconds: parseNonNegativeNumber(options.cacheTtl, "--cache-ttl"),
+        },
+        async () => {
+          const current = await getCurrentStatus({ codexHome: options.codexHome, cwd: options.cwd });
+          return current ? asStatusLine(current) : null;
+        },
+      );
+      if (!snapshot) {
+        if (options.format !== "tmux") {
+          io.stderr(`No Codex session found for ${options.cwd}\n`);
+          exitCode = 1;
+        }
+        return;
+      }
+      const color = options.format === "plain"
+        ? false
+        : options.format === "tmux" || colorEnabled(options.color, io);
+      io.stdout(
+        `${renderStatusLine(snapshot, {
+          color,
+          width: parseWidth(options.width, io.columns),
+          format: options.format,
+        })}\n`,
+      );
+    });
 
   addStatusOptions(program.command("status"), true).action(async (options: StatusOptions) => {
     const snapshot = await loadStatus(options, io);

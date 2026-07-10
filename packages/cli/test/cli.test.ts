@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
@@ -40,6 +40,67 @@ describe("statusline", () => {
     expect(output.stderr).toEqual([]);
     expect(output.stdout.join(""))
       .toBe("gpt-5.6-sol high | ctx 46.1% 163k/353.4k | cache 99.5% | time 13.0s | speed 321.5t/s | total 3.73m\n");
+  });
+
+  it("renders tmux format at an explicit width", async () => {
+    const output = capture();
+    const code = await runCli(
+      [
+        "statusline",
+        "--codex-home",
+        codexHome,
+        "--cwd",
+        "/workspace/project",
+        "--format",
+        "tmux",
+        "--width",
+        "60",
+      ],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(output.stdout.join("")).toContain("#[fg=");
+    expect(output.stdout.join("")).not.toContain("\u001B[");
+  });
+
+  it("is silent when tmux has no matching session", async () => {
+    const output = capture();
+    const emptyHome = await mkdtemp(join(tmpdir(), "codex-auto-empty-"));
+    const code = await runCli(
+      ["statusline", "--codex-home", emptyHome, "--cwd", "/missing", "--format", "tmux"],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([]);
+  });
+
+  it("reuses a fresh statusline cache entry", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "codex-auto-statusline-cache-"));
+    const args = [
+      "statusline",
+      "--codex-home",
+      codexHome,
+      "--cwd",
+      "/workspace/project",
+      "--cache-ttl",
+      "10",
+      "--state-dir",
+      stateDir,
+    ];
+
+    expect(await runCli(args, capture().io)).toBe(0);
+    const cacheDir = join(stateDir, "statusline-cache");
+    const [cacheName] = await readdir(cacheDir);
+    const cachePath = join(cacheDir, cacheName!);
+    const first = await stat(cachePath);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await runCli(args, capture().io)).toBe(0);
+    const second = await stat(cachePath);
+
+    expect(second.mtimeMs).toBe(first.mtimeMs);
   });
 });
 
