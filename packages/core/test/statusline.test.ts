@@ -14,6 +14,13 @@ const snapshot: StatusLineSnapshot = {
   cumulativeTokens: 3_733_101,
 };
 
+function stripTmux(value: string): string {
+  return value
+    .replaceAll("##", "\u0000")
+    .replaceAll(/#\[[^\]]*\]/g, "")
+    .replaceAll("\u0000", "#");
+}
+
 describe("renderStatusLine", () => {
   it("renders all modules without ANSI when color is disabled", () => {
     expect(renderStatusLine(snapshot, { color: false, width: 160 })).toBe(
@@ -39,6 +46,36 @@ describe("renderStatusLine", () => {
 
     expect(rendered).toContain("\u001B[31m");
     expect(stripVTControlCharacters(rendered)).toContain("ctx 90.0% 318.1k/353.4k high");
+  });
+
+  it("renders tmux-native colors without ANSI", () => {
+    const rendered = renderStatusLine(snapshot, { color: true, width: 160, format: "tmux" });
+
+    expect(rendered).toContain("#[fg=#3b82f6]");
+    expect(rendered).toContain("#[fg=#d946ef]");
+    expect(rendered).not.toContain("\u001B[");
+    expect(stripTmux(rendered)).toBe(
+      renderStatusLine(snapshot, { color: false, width: 160, format: "plain" }),
+    );
+  });
+
+  it("escapes branch text that resembles a tmux directive", () => {
+    const rendered = renderStatusLine(
+      { ...snapshot, git: { ...snapshot.git!, branch: "feature/#[fg=red]" } },
+      { color: true, width: 160, format: "tmux" },
+    );
+
+    expect(rendered).toContain("feature/##[fg=red]");
+    expect(stripTmux(rendered)).toContain("feature/#[fg=red]");
+  });
+
+  it.each([30, 40, 60])("keeps tmux output within %i visible columns", (width) => {
+    const rendered = renderStatusLine(snapshot, { color: true, width, format: "tmux" });
+    const plain = stripTmux(rendered);
+
+    expect(stringWidth(plain)).toBeLessThanOrEqual(width);
+    expect(plain).toContain("main*");
+    expect(plain).toContain("ctx 46.1%");
   });
 
   it.each([30, 40, 60])("never exceeds a %i-column terminal", (width) => {

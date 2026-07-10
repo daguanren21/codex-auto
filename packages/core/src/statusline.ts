@@ -18,22 +18,29 @@ export interface StatusLineSnapshot {
 export interface StatusLineOptions {
   color: boolean;
   width: number;
+  format?: StatusLineFormat;
 }
 
+export type StatusLineFormat = "ansi" | "plain" | "tmux";
+
 type SegmentKey = "model" | "git" | "context" | "cache" | "time" | "speed" | "total";
+type SegmentTone = "blue" | "magenta" | "cyan" | MetricLevel;
 
 interface Segment {
   key: SegmentKey;
   plain: string;
-  colored: string;
+  tone: SegmentTone;
 }
 
-function metricColor(colors: ReturnType<typeof pc.createColors>, level: MetricLevel, text: string): string {
-  if (level === "high") return colors.bold(colors.red(text));
-  if (level === "medium") return colors.yellow(text);
-  if (level === "neutral") return colors.dim(text);
-  return colors.green(text);
-}
+const TMUX_COLORS: Record<SegmentTone, string> = {
+  blue: "#3b82f6",
+  magenta: "#d946ef",
+  cyan: "#06b6d4",
+  low: "#22c55e",
+  medium: "#eab308",
+  high: "#ef4444",
+  neutral: "#6b7280",
+};
 
 function contextText(context: NonNullable<StatusLineSnapshot["context"]>, compact: boolean): string {
   const ratio = Math.max(0, Math.min(context.ratio, 1));
@@ -42,30 +49,29 @@ function contextText(context: NonNullable<StatusLineSnapshot["context"]>, compac
   return `ctx ${(ratio * 100).toFixed(1)}%${counts}${marker}`;
 }
 
-function createSegments(snapshot: StatusLineSnapshot, color: boolean, compactContext = false): Segment[] {
-  const colors = pc.createColors(color);
+function createSegments(snapshot: StatusLineSnapshot, compactContext = false): Segment[] {
   const segments: Segment[] = [];
 
   if (snapshot.model) {
     const plain = [snapshot.model.name, snapshot.model.effort].filter(Boolean).join(" ");
-    segments.push({ key: "model", plain, colored: colors.blue(plain) });
+    segments.push({ key: "model", plain, tone: "blue" });
   }
   if (snapshot.git) {
     const sync = `${snapshot.git.ahead ? ` +${snapshot.git.ahead}` : ""}${snapshot.git.behind ? `/-${snapshot.git.behind}` : ""}`;
     const plain = `${snapshot.git.branch}${snapshot.git.dirty ? "*" : ""}${sync}`;
-    segments.push({ key: "git", plain, colored: colors.magenta(plain) });
+    segments.push({ key: "git", plain, tone: "magenta" });
   }
   if (snapshot.context) {
     const plain = contextText(snapshot.context, compactContext);
     const level = classifyMetric("context", snapshot.context.ratio);
-    segments.push({ key: "context", plain, colored: metricColor(colors, level, plain) });
+    segments.push({ key: "context", plain, tone: level });
   }
   if (snapshot.cacheRatio !== undefined) {
     const plain = `cache ${(snapshot.cacheRatio * 100).toFixed(1)}%`;
     segments.push({
       key: "cache",
       plain,
-      colored: metricColor(colors, classifyMetric("cache", snapshot.cacheRatio), plain),
+      tone: classifyMetric("cache", snapshot.cacheRatio),
     });
   }
   if (snapshot.performance?.elapsedSeconds !== undefined) {
@@ -73,7 +79,7 @@ function createSegments(snapshot: StatusLineSnapshot, color: boolean, compactCon
     segments.push({
       key: "time",
       plain,
-      colored: metricColor(colors, classifyMetric("duration", snapshot.performance.elapsedSeconds), plain),
+      tone: classifyMetric("duration", snapshot.performance.elapsedSeconds),
     });
   }
   if (snapshot.performance?.outputTokensPerSecond !== undefined) {
@@ -81,12 +87,12 @@ function createSegments(snapshot: StatusLineSnapshot, color: boolean, compactCon
     segments.push({
       key: "speed",
       plain,
-      colored: metricColor(colors, classifyMetric("speed", snapshot.performance.outputTokensPerSecond), plain),
+      tone: classifyMetric("speed", snapshot.performance.outputTokensPerSecond),
     });
   }
   if (snapshot.cumulativeTokens !== undefined) {
     const plain = `total ${formatTokens(snapshot.cumulativeTokens)}`;
-    segments.push({ key: "total", plain, colored: colors.cyan(plain) });
+    segments.push({ key: "total", plain, tone: "cyan" });
   }
   return segments;
 }
@@ -95,9 +101,40 @@ function lineWidth(segments: Segment[]): number {
   return stringWidth(segments.map((segment) => segment.plain).join(" | "));
 }
 
+function renderAnsiSegment(segment: Segment, color: boolean): string {
+  const colors = pc.createColors(color);
+  if (segment.tone === "blue") return colors.blue(segment.plain);
+  if (segment.tone === "magenta") return colors.magenta(segment.plain);
+  if (segment.tone === "cyan") return colors.cyan(segment.plain);
+  if (segment.tone === "high") return colors.bold(colors.red(segment.plain));
+  if (segment.tone === "medium") return colors.yellow(segment.plain);
+  if (segment.tone === "neutral") return colors.dim(segment.plain);
+  return colors.green(segment.plain);
+}
+
+function tmuxEscape(value: string): string {
+  return value.replaceAll("#", "##");
+}
+
+function renderTmuxSegment(segment: Segment): string {
+  const bold = segment.tone === "high" ? ",bold" : "";
+  return `#[fg=${TMUX_COLORS[segment.tone]}${bold}]${tmuxEscape(segment.plain)}#[default]`;
+}
+
+function renderSegments(segments: Segment[], options: StatusLineOptions): string {
+  const format = options.format ?? (options.color ? "ansi" : "plain");
+  if (format === "plain") return segments.map((segment) => segment.plain).join(" | ");
+  if (format === "tmux") {
+    const separator = "#[fg=#6b7280] | #[default]";
+    return segments.map(renderTmuxSegment).join(separator);
+  }
+  const colors = pc.createColors(options.color);
+  return segments.map((segment) => renderAnsiSegment(segment, options.color)).join(colors.dim(" | "));
+}
+
 export function renderStatusLine(snapshot: StatusLineSnapshot, options: StatusLineOptions): string {
   let compactContext = false;
-  let segments = createSegments(snapshot, options.color, compactContext);
+  let segments = createSegments(snapshot, compactContext);
   const removalOrder: SegmentKey[] = ["total", "cache", "model", "speed", "time"];
 
   for (const key of removalOrder) {
@@ -107,11 +144,13 @@ export function renderStatusLine(snapshot: StatusLineSnapshot, options: StatusLi
   if (lineWidth(segments) > options.width) {
     compactContext = true;
     const remaining = new Set(segments.map((segment) => segment.key));
-    segments = createSegments(snapshot, options.color, compactContext).filter((segment) => remaining.has(segment.key));
+    segments = createSegments(snapshot, compactContext).filter((segment) => remaining.has(segment.key));
   }
 
-  const rendered = segments.map((segment) => segment.colored).join(pc.createColors(options.color).dim(" | "));
-  if (stringWidth(stripVTControlCharacters(rendered)) <= options.width) return rendered;
-  return stripVTControlCharacters(rendered).slice(0, Math.max(0, options.width));
+  const rendered = renderSegments(segments, options);
+  if (lineWidth(segments) <= options.width) return rendered;
+  return stripVTControlCharacters(renderSegments(segments, { ...options, format: "plain" })).slice(
+    0,
+    Math.max(0, options.width),
+  );
 }
-

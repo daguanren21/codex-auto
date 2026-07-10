@@ -2,7 +2,7 @@ export { formatTokens } from "./format.js";
 export { classifyMetric } from "./metrics.js";
 export type { MetricKind, MetricLevel } from "./metrics.js";
 export { renderStatusLine } from "./statusline.js";
-export type { StatusLineOptions, StatusLineSnapshot } from "./statusline.js";
+export type { StatusLineFormat, StatusLineOptions, StatusLineSnapshot } from "./statusline.js";
 export { readConfiguredModel } from "./codex/config.js";
 export { readSessionSnapshot } from "./codex/rollout.js";
 export { findLatestSession, listSessions } from "./codex/sessions.js";
