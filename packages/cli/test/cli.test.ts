@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtemp, readdir, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
@@ -220,6 +220,35 @@ describe("config", () => {
       workat: ["10:30", "14:00"],
       proxy: { HTTP_PROXY: "http://127.0.0.1:7890" },
     });
+  });
+});
+
+describe("tmux config", () => {
+  it("installs and uninstalls the tmux block", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-auto-tmux-"));
+    const configPath = join(dir, ".tmux.conf");
+    const existing = `set -g @plugin 'tmux-plugins/tpm'\nrun "~/.config/tmux/plugins/tpm/tpm"\n`;
+    await writeFile(configPath, existing, "utf8");
+
+    expect(
+      await runCli(
+        [
+          "tmux",
+          "install",
+          "--config",
+          configPath,
+          "--executable",
+          "/usr/local/bin/codex-auto",
+          "--no-reload",
+        ],
+        capture().io,
+      ),
+    ).toBe(0);
+    expect(await readFile(configPath, "utf8")).toContain("/usr/local/bin/codex-auto");
+    expect(
+      await runCli(["tmux", "uninstall", "--config", configPath, "--no-reload"], capture().io),
+    ).toBe(0);
+    expect(await readFile(configPath, "utf8")).toBe(existing);
   });
 });
 

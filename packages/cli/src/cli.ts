@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -30,6 +30,7 @@ import pc from "picocolors";
 import { readRuntimeConfig, saveRuntimeConfig } from "./runtime-config.js";
 import { readCachedStatusLine } from "./status-cache.js";
 import { launchResumeTerminal, runPrewarmProbe } from "./terminal.js";
+import { installTmuxBlock, removeTmuxBlock, renderTmuxBlock, writeTmuxConfig } from "./tmux-config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -219,6 +220,29 @@ async function pathExists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readOptionalFile(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw error;
+  }
+}
+
+async function reloadTmuxConfig(path: string): Promise<"reloaded" | "no-server"> {
+  try {
+    await execFileAsync("tmux", ["source-file", path], { timeout: 5_000 });
+    return "reloaded";
+  } catch (error) {
+    const message = [
+      (error as { message?: string }).message,
+      (error as { stderr?: string }).stderr,
+    ].filter(Boolean).join("\n");
+    if (message.includes("no server running") || message.includes("error connecting to")) return "no-server";
+    throw error;
   }
 }
 
@@ -428,6 +452,46 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       await saveRuntimeConfig(path, config);
       if (options.json) io.stdout(`${JSON.stringify(config, null, 2)}\n`);
       else io.stdout(`saved ${path}\n`);
+    });
+
+  const tmux = program.command("tmux");
+  tmux
+    .command("install")
+    .option("--config <path>", "Tmux config path", join(homedir(), ".tmux.conf"))
+    .option("--executable <path>", "Absolute codex-auto executable", resolve(process.argv[1] ?? "codex-auto"))
+    .option("--no-reload", "Do not reload the tmux config")
+    .action(async (options: { config: string; executable: string; reload: boolean }) => {
+      try {
+        const source = await readOptionalFile(options.config);
+        const transformed = installTmuxBlock(source, renderTmuxBlock(resolve(options.executable)));
+        await writeTmuxConfig(options.config, transformed);
+        if (options.reload) {
+          const result = await reloadTmuxConfig(options.config);
+          if (result === "no-server") {
+            io.stdout("installed; start tmux to load the statusline\n");
+            return;
+          }
+        }
+        io.stdout(`installed ${options.config}\n`);
+      } catch (error) {
+        io.stderr(`Failed to install tmux config ${options.config}: ${(error as Error).message}\n`);
+        exitCode = 1;
+      }
+    });
+  tmux
+    .command("uninstall")
+    .option("--config <path>", "Tmux config path", join(homedir(), ".tmux.conf"))
+    .option("--no-reload", "Do not reload the tmux config")
+    .action(async (options: { config: string; reload: boolean }) => {
+      try {
+        const source = await readOptionalFile(options.config);
+        await writeTmuxConfig(options.config, removeTmuxBlock(source));
+        if (options.reload) await reloadTmuxConfig(options.config);
+        io.stdout(`uninstalled ${options.config}\n`);
+      } catch (error) {
+        io.stderr(`Failed to uninstall tmux config ${options.config}: ${(error as Error).message}\n`);
+        exitCode = 1;
+      }
     });
 
   program
