@@ -37,11 +37,15 @@ export async function runDock(
 ): Promise<"ok" | "error"> {
   let first = true;
   do {
+    if (options.signal?.aborted) return "ok";
     let frame: string;
     let result: "ok" | "error" = "ok";
     try {
-      frame = dependencies.render(await dependencies.load());
+      const snapshot = await dependencies.load();
+      if (options.signal?.aborted) return "ok";
+      frame = dependencies.render(snapshot);
     } catch (error) {
+      if (options.signal?.aborted) return "ok";
       frame = `Codex Insights\nUnavailable: ${conciseError(error)}`;
       result = "error";
     }
