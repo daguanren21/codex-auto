@@ -17,17 +17,26 @@ import {
   readResumeState,
   reconcilePrewarmJobs,
   reconcileResumeJobs,
+  renderDockStatus,
   renderStatusLine,
   runDueResumeJobs,
   runDuePrewarmJobs,
   saveResumeState,
   toStatusLineSnapshot,
   type CurrentStatusSnapshot,
+  type StatusLineSnapshot,
   type StatusLineFormat,
 } from "@codex-auto/core";
 import { Command } from "commander";
 import pc from "picocolors";
 
+import {
+  installCmuxControl,
+  removeCmuxControl,
+  renderCmuxControl,
+  writeCmuxDockConfig,
+} from "./cmux-config.js";
+import { runDock, waitForDelay } from "./dock-runner.js";
 import { readRuntimeConfig, saveRuntimeConfig } from "./runtime-config.js";
 import { readCachedStatusLine } from "./status-cache.js";
 import { launchResumeTerminal, runPrewarmProbe } from "./terminal.js";
@@ -53,6 +62,13 @@ interface StatusOptions {
 interface StatusLineCliOptions extends StatusOptions {
   format: StatusLineFormat;
   width?: string;
+  cacheTtl: string;
+  stateDir: string;
+}
+
+interface DockCliOptions extends StatusOptions {
+  watch?: boolean;
+  interval: string;
   cacheTtl: string;
   stateDir: string;
 }
@@ -88,6 +104,12 @@ function colorEnabled(mode: StatusOptions["color"], io: CliIo): boolean {
 function parseNonNegativeNumber(value: string, name: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative number`);
+  return parsed;
+}
+
+function parsePositiveNumber(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${name} must be a positive number`);
   return parsed;
 }
 
@@ -299,6 +321,50 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   });
   let exitCode = 0;
 
+  addStatusOptions(program.command("dock"), false)
+    .option("--watch", "Refresh continuously for a cmux Dock control")
+    .option("--interval <seconds>", "Refresh interval", "10")
+    .option("--cache-ttl <seconds>", "Status cache lifetime", "10")
+    .option("--state-dir <path>", "State directory", join(homedir(), ".codex-auto"))
+    .action(async (options: DockCliOptions) => {
+      const intervalMs = parsePositiveNumber(options.interval, "--interval") * 1_000;
+      const cacheTtl = parseNonNegativeNumber(options.cacheTtl, "--cache-ttl");
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      if (options.watch) {
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+      }
+      try {
+        const result = await runDock(
+          { watch: Boolean(options.watch), intervalMs, signal: controller.signal },
+          {
+            load: async (): Promise<StatusLineSnapshot | null> => readCachedStatusLine(
+              {
+                cacheDir: join(options.stateDir, "statusline-cache"),
+                codexHome: options.codexHome,
+                cwd: options.cwd,
+                ttlSeconds: cacheTtl,
+              },
+              async () => {
+                const current = await getCurrentStatus({ codexHome: options.codexHome, cwd: options.cwd });
+                return current ? toStatusLineSnapshot(current) : null;
+              },
+            ),
+            render: (snapshot) => renderDockStatus(snapshot, { color: colorEnabled(options.color, io) }),
+            write: io.stdout,
+            wait: waitForDelay,
+          },
+        );
+        if (!options.watch && result === "error") exitCode = 1;
+      } finally {
+        if (options.watch) {
+          process.removeListener("SIGINT", stop);
+          process.removeListener("SIGTERM", stop);
+        }
+      }
+    });
+
   addStatusOptions(program.command("statusline"), false)
     .option("--format <format>", "Output format: ansi, plain, tmux", "ansi")
     .option("--width <columns>", "Visible output width")
@@ -464,6 +530,37 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         io.stdout(`uninstalled ${options.config}\n`);
       } catch (error) {
         io.stderr(`Failed to uninstall tmux config ${options.config}: ${(error as Error).message}\n`);
+        exitCode = 1;
+      }
+    });
+
+  const cmux = program.command("cmux");
+  cmux
+    .command("install")
+    .option("--config <path>", "Global cmux Dock config path", join(homedir(), ".config", "cmux", "dock.json"))
+    .option("--executable <path>", "Absolute codex-auto executable", resolve(process.argv[1] ?? "codex-auto"))
+    .action(async (options: { config: string; executable: string }) => {
+      try {
+        const source = await readOptionalFile(options.config);
+        const transformed = installCmuxControl(source, renderCmuxControl(options.executable));
+        await writeCmuxDockConfig(options.config, transformed);
+        io.stdout(`installed ${options.config}\nReload an open cmux Dock with its Reload Dock action.\n`);
+      } catch (error) {
+        io.stderr(`Failed to install cmux Dock config ${options.config}: ${(error as Error).message}\n`);
+        exitCode = 1;
+      }
+    });
+  cmux
+    .command("uninstall")
+    .option("--config <path>", "Global cmux Dock config path", join(homedir(), ".config", "cmux", "dock.json"))
+    .action(async (options: { config: string }) => {
+      try {
+        const source = await readOptionalFile(options.config);
+        const transformed = removeCmuxControl(source);
+        if (transformed !== source) await writeCmuxDockConfig(options.config, transformed);
+        io.stdout(`uninstalled ${options.config}\nReload an open cmux Dock with its Reload Dock action.\n`);
+      } catch (error) {
+        io.stderr(`Failed to uninstall cmux Dock config ${options.config}: ${(error as Error).message}\n`);
         exitCode = 1;
       }
     });

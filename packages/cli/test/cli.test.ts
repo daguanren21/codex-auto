@@ -252,6 +252,71 @@ describe("tmux config", () => {
   });
 });
 
+describe("dock", () => {
+  it("renders one complete Dock frame without ANSI", async () => {
+    const output = capture();
+    const code = await runCli(
+      [
+        "dock", "--codex-home", codexHome, "--cwd", "/workspace/project",
+        "--color", "never", "--cache-ttl", "0",
+      ],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(output.stdout.join("")).toContain("Codex Insights\nModel     gpt-5.6-sol high\n");
+    expect(output.stdout.join("")).toContain("Context   163k / 353.4k  46.1%\n");
+  });
+
+  it("renders an idle frame successfully", async () => {
+    const output = capture();
+    const emptyHome = await mkdtemp(join(tmpdir(), "codex-auto-dock-empty-"));
+    const code = await runCli(
+      [
+        "dock", "--codex-home", emptyHome, "--cwd", "/missing",
+        "--color", "never", "--cache-ttl", "0",
+      ],
+      output.io,
+    );
+
+    expect(code).toBe(0);
+    expect(output.stdout.join("")).toBe("Codex Insights\nNo active Codex session\n");
+  });
+
+  it.each(["0", "-1", "not-a-number"])("rejects interval %s", async (interval) => {
+    expect(await runCli(["dock", "--watch", "--interval", interval], capture().io)).toBe(2);
+  });
+});
+
+describe("cmux config", () => {
+  it("installs and uninstalls only the global Dock control", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-auto-cmux-"));
+    const configPath = join(dir, "dock.json");
+    const existing = `${JSON.stringify({ controls: [{ id: "tests", command: "pnpm test" }] }, null, 2)}\n`;
+    await writeFile(configPath, existing, "utf8");
+
+    expect(await runCli([
+      "cmux", "install", "--config", configPath, "--executable", "/usr/local/bin/codex-auto",
+    ], capture().io)).toBe(0);
+    expect(await readFile(configPath, "utf8")).toContain("'/usr/local/bin/codex-auto' dock --watch");
+
+    expect(await runCli(["cmux", "uninstall", "--config", configPath], capture().io)).toBe(0);
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(JSON.parse(existing));
+  });
+
+  it("leaves malformed config unchanged and reports its path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-auto-cmux-invalid-"));
+    const configPath = join(dir, "dock.json");
+    await writeFile(configPath, "not json\n", "utf8");
+    const output = capture();
+
+    expect(await runCli(["cmux", "install", "--config", configPath], output.io)).toBe(1);
+    expect(await readFile(configPath, "utf8")).toBe("not json\n");
+    expect(output.stderr.join("")).toContain(`Failed to install cmux Dock config ${configPath}`);
+  });
+});
+
 describe("watch --once", () => {
   it("scans rollouts and persists pending resume jobs", async () => {
     const output = capture();
