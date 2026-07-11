@@ -1,12 +1,10 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import { shellQuote } from "./shell.js";
+
 export const TMUX_BLOCK_START = "# BEGIN codex-auto statusline";
 export const TMUX_BLOCK_END = "# END codex-auto statusline";
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
 
 export function renderTmuxBlock(executable: string): string {
   const command = `${shellQuote(executable)} statusline --format tmux --cache-ttl 10 --cwd #{q:pane_current_path} --width #{client_width}`;
