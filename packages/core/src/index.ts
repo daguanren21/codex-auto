@@ -1,6 +1,8 @@
 export { formatTokens } from "./format.js";
 export { classifyMetric } from "./metrics.js";
 export type { MetricKind, MetricLevel } from "./metrics.js";
+export { renderDockStatus } from "./dock.js";
+export type { DockStatusOptions } from "./dock.js";
 export { renderStatusLine } from "./statusline.js";
 export type { StatusLineFormat, StatusLineOptions, StatusLineSnapshot } from "./statusline.js";
 export { readConfiguredModel } from "./codex/config.js";
@@ -17,7 +19,7 @@ export { parseGitStatus, probeGit } from "./git.js";
 export type { GitSnapshot } from "./git.js";
 export { deriveTurnPerformance } from "./performance.js";
 export type { TurnPerformanceSnapshot } from "./performance.js";
-export { getCurrentStatus } from "./status.js";
+export { getCurrentStatus, toStatusLineSnapshot } from "./status.js";
 export type { CurrentStatusSnapshot } from "./status.js";
 export { buildResumeCandidate, reconcileResumeJobs } from "./resume/scheduler.js";
 export type { ResumeCandidate, ResumeJob, ResumeState } from "./resume/scheduler.js";

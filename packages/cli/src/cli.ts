@@ -21,6 +21,7 @@ import {
   runDueResumeJobs,
   runDuePrewarmJobs,
   saveResumeState,
+  toStatusLineSnapshot,
   type CurrentStatusSnapshot,
   type StatusLineFormat,
 } from "@codex-auto/core";
@@ -95,33 +96,6 @@ function parseWidth(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) throw new Error("--width must be a positive integer");
   return parsed;
-}
-
-function asStatusLine(snapshot: CurrentStatusSnapshot) {
-  return {
-    ...(snapshot.model
-      ? {
-          model: {
-            name: snapshot.model.name,
-            ...(snapshot.model.effort ? { effort: snapshot.model.effort } : {}),
-          },
-        }
-      : {}),
-    ...(snapshot.git ? { git: snapshot.git } : {}),
-    context: snapshot.context,
-    cacheRatio: snapshot.cacheRatio,
-    ...(snapshot.performance
-      ? {
-          performance: {
-            elapsedSeconds: snapshot.performance.elapsedSeconds,
-            ...(snapshot.performance.outputTokensPerSecond !== undefined
-              ? { outputTokensPerSecond: snapshot.performance.outputTokensPerSecond }
-              : {}),
-          },
-        }
-      : {}),
-    cumulativeTokens: snapshot.cumulativeTokens,
-  };
 }
 
 function renderContext(snapshot: CurrentStatusSnapshot, color: boolean): string {
@@ -343,7 +317,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         },
         async () => {
           const current = await getCurrentStatus({ codexHome: options.codexHome, cwd: options.cwd });
-          return current ? asStatusLine(current) : null;
+          return current ? toStatusLineSnapshot(current) : null;
         },
       );
       if (!snapshot) {
@@ -375,7 +349,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       io.stdout(`${JSON.stringify(snapshot, null, 2)}\n`);
       return;
     }
-    io.stdout(`${renderStatusLine(asStatusLine(snapshot), { color: colorEnabled(options.color, io), width: io.columns })}\n`);
+    io.stdout(`${renderStatusLine(toStatusLineSnapshot(snapshot), { color: colorEnabled(options.color, io), width: io.columns })}\n`);
   });
 
   addStatusOptions(program.command("context"), true).action(async (options: StatusOptions) => {
