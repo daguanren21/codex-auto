@@ -107,7 +107,7 @@ function parseNonNegativeNumber(value: string, name: string): number {
   return parsed;
 }
 
-function parsePositiveNumber(value: string, name: string): number {
+export function parsePositiveNumber(value: string, name: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${name} must be a positive number`);
   return parsed;

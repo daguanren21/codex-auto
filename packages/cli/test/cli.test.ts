@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import { runCli } from "../src/cli.js";
+import { parsePositiveNumber, runCli } from "../src/cli.js";
 
 const codexHome = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -249,6 +249,17 @@ describe("tmux config", () => {
       await runCli(["tmux", "uninstall", "--config", configPath, "--no-reload"], capture().io),
     ).toBe(0);
     expect(await readFile(configPath, "utf8")).toBe(existing);
+  });
+});
+
+describe("parsePositiveNumber", () => {
+  it("returns a positive decimal", () => {
+    expect(parsePositiveNumber("1.5", "--interval")).toBe(1.5);
+  });
+
+  it.each(["0", "-1", "not-a-number", "Infinity"])("rejects %s", (value) => {
+    expect(() => parsePositiveNumber(value, "--interval"))
+      .toThrow("--interval must be a positive number");
   });
 });
 
