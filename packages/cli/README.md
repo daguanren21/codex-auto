@@ -2,6 +2,17 @@
 
 The bundled `codex-auto` command. Build with `pnpm --filter @codex-auto/cli build`, then run `node dist/bin.mjs --help` from this directory.
 
+## cmux Dock
+
+Install or remove the global right-sidebar control with:
+
+```bash
+codex-auto cmux install
+codex-auto cmux uninstall
+```
+
+The installer idempotently manages the `codex-auto` entry in `~/.config/cmux/dock.json` and preserves all other controls. Use cmux's **Reload Dock** action if the sidebar was already open. The managed command is `codex-auto dock --watch`; one-shot `codex-auto dock` is available for diagnostics.
+
 ## Tmux
 
 After exposing the built `dist/bin.mjs` as `codex-auto` on `PATH`, install or remove the managed status bar with:

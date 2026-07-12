@@ -29,6 +29,29 @@ The active rollout model is authoritative. `~/.codex/config.toml` is used only w
 
 Token values are adaptive: raw below `1,000`, `k` below `1m`, and `m` from one million upward. Context is green below 60%, yellow from 60% to 84.9%, and bold red from 85%. Time is green below 15 seconds, yellow through 45 seconds, then red. Speed is green from 50 tok/s, yellow from 15 tok/s, then red. Model, Git, cache, output, reasoning, and totals use stable distinct colors. `NO_COLOR`, `FORCE_COLOR`, and `--color auto|always|never` are supported; JSON never contains ANSI.
 
+### cmux Dock
+
+Install one global right-sidebar Dock control for every cmux workspace:
+
+```bash
+pnpm build
+codex-auto cmux install
+```
+
+Open the cmux right sidebar in Dock mode. If the Dock was already open during installation, use its **Reload Dock** action once. The control inherits each workspace working directory, renders immediately, and refreshes model, Git, context, cache, timing, speed, and cumulative tokens every 10 seconds. It does not require tmux, a cmux socket, or a global daemon.
+
+Render one deterministic frame for troubleshooting:
+
+```bash
+codex-auto dock --color never
+```
+
+Remove only the managed `codex-auto` control with:
+
+```bash
+codex-auto cmux uninstall
+```
+
 ### Tmux Status Bar
 
 Build the CLI, make the executable available on `PATH`, and install the managed tmux block:
