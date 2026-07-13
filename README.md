@@ -9,13 +9,17 @@
 - `packages/mcp-server`: bundled read-only MCP server.
 - `packages/plugins/codex-insights`: Codex plugin manifest, skills, and standalone MCP bundle.
 
-Node.js 22+ and pnpm 10 are required.
+Node.js 22+ and pnpm 10 are required. The commands below assume the shell is in this repository root.
 
 ```bash
 pnpm install
 pnpm build
-node packages/cli/dist/bin.mjs doctor
+install -d ~/.local/bin
+ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/codex-auto
+codex-auto doctor
 ```
+
+The symlink is optional, but it makes the examples below available as `codex-auto` from any directory. Without it, replace `codex-auto` with `node packages/cli/dist/bin.mjs`.
 
 ## Status And Context
 
@@ -31,6 +35,10 @@ Token values are adaptive: raw below `1,000`, `k` below `1m`, and `m` from one m
 
 ### cmux Dock
 
+The cmux integration is a global right-sidebar control. cmux starts one short-lived
+`codex-auto dock --watch` process per visible Dock, so there is no background daemon to
+manage. It follows the working directory of each cmux workspace.
+
 Install one global right-sidebar Dock control for every cmux workspace:
 
 ```bash
@@ -38,7 +46,27 @@ pnpm build
 codex-auto cmux install
 ```
 
-Open the cmux right sidebar in Dock mode. If the Dock was already open during installation, use its **Reload Dock** action once. The control inherits each workspace working directory, renders immediately, and refreshes model, Git, context, cache, timing, speed, and cumulative tokens every 10 seconds. It does not require tmux, a cmux socket, or a global daemon.
+The installer writes `~/.config/cmux/dock.json`, preserves unrelated controls, and replaces
+only the managed control with id `codex-auto`. Open cmux's right sidebar, switch it to **Dock**,
+and use **Reload Dock** once if the sidebar was already open during installation. The control
+renders immediately and refreshes model, Git, context, cache, timing, speed, and cumulative
+tokens every 10 seconds. It does not require tmux or a cmux socket.
+
+Check the installed control and render the same frame directly:
+
+```bash
+python3 -m json.tool ~/.config/cmux/dock.json
+codex-auto dock --color never
+cmux right-sidebar dock
+```
+
+For a different executable location or a test config, pass explicit paths:
+
+```bash
+codex-auto cmux install \
+  --config ~/.config/cmux/dock.json \
+  --executable "$HOME/.local/bin/codex-auto"
+```
 
 Render one deterministic frame for troubleshooting:
 
@@ -51,6 +79,9 @@ Remove only the managed `codex-auto` control with:
 ```bash
 codex-auto cmux uninstall
 ```
+
+Uninstall removes only the `codex-auto` control and leaves the rest of the Dock configuration
+untouched. Reload the Dock after uninstalling.
 
 ### Tmux Status Bar
 
@@ -112,7 +143,20 @@ Each `workat` value schedules a silent probe four hours earlier. The probe uses 
 
 ## Codex Plugin
 
-Building `@codex-auto/mcp-server` copies a standalone bundle to `packages/plugins/codex-insights/start.mjs`. Install the `packages/plugins/codex-insights` directory through the Codex plugin development or personal marketplace workflow. It exposes these read-only tools:
+The Codex Insights MCP plugin is separate from the cmux Dock control. The Dock is a terminal
+dashboard; the Codex plugin adds read-only tools that can be called from a Codex conversation.
+
+Building `@codex-auto/mcp-server` copies a standalone bundle to `packages/plugins/codex-insights/start.mjs`.
+For local development, install or refresh the plugin from the personal marketplace after building:
+
+```bash
+pnpm build
+codex plugin add codex-insights@personal
+codex plugin list
+```
+
+Start a new Codex thread after reinstalling so the updated skills and MCP tools are loaded. The
+plugin exposes these read-only tools:
 
 - `get_status`
 - `get_context_stats`
@@ -121,6 +165,10 @@ Building `@codex-auto/mcp-server` copies a standalone bundle to `packages/plugin
 - `list_sessions`
 
 The plugin reads `~/.codex/config.toml` and `~/.codex/sessions`; it does not mutate Codex data or expose conversation content through its tools.
+
+If `codex-insights@personal` is already installed and you are developing a local copy, use the
+Codex plugin update/reinstall flow for that marketplace instead of editing `~/.codex/config.toml`
+by hand. The plugin source is listed by the personal marketplace at `~/.agents/plugins/marketplace.json`.
 
 ## Migration From Python
 

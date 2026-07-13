@@ -1,17 +1,27 @@
 # @codex-auto/cli
 
-The bundled `codex-auto` command. Build with `pnpm --filter @codex-auto/cli build`, then run `node dist/bin.mjs --help` from this directory.
+The bundled `codex-auto` command. From the repository root, build with `pnpm build`; from this
+package directory, use `pnpm --filter @codex-auto/cli build`. Then run `node dist/bin.mjs --help`.
 
 ## cmux Dock
 
-Install or remove the global right-sidebar control with:
+The cmux Dock control and the Codex Insights MCP plugin are separate integrations. Install the
+global right-sidebar control with:
 
 ```bash
 codex-auto cmux install
+```
+
+The installer idempotently manages the `codex-auto` entry in `~/.config/cmux/dock.json` and
+preserves all other controls. Use cmux's **Reload Dock** action if the sidebar was already open.
+The managed command is `codex-auto dock --watch`; one-shot `codex-auto dock --color never` is
+available for diagnostics. Remove only this control with:
+
+```bash
 codex-auto cmux uninstall
 ```
 
-The installer idempotently manages the `codex-auto` entry in `~/.config/cmux/dock.json` and preserves all other controls. Use cmux's **Reload Dock** action if the sidebar was already open. The managed command is `codex-auto dock --watch`; one-shot `codex-auto dock` is available for diagnostics.
+The Dock process inherits the current cmux workspace directory and refreshes every 10 seconds.
 
 ## Tmux
 
