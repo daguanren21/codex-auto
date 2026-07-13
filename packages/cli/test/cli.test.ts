@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { parsePositiveNumber, runCli } from "../src/cli.js";
 
@@ -330,25 +330,31 @@ describe("cmux config", () => {
 
 describe("watch --once", () => {
   it("scans rollouts and persists pending resume jobs", async () => {
-    const output = capture();
-    const stateDir = await mkdtemp(join(tmpdir(), "codex-auto-watch-"));
-    const code = await runCli(
-      ["watch", "--once", "--codex-home", codexHome, "--state-dir", stateDir],
-      output.io,
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T07:00:00Z"));
+    try {
+      const output = capture();
+      const stateDir = await mkdtemp(join(tmpdir(), "codex-auto-watch-"));
+      const code = await runCli(
+        ["watch", "--once", "--codex-home", codexHome, "--state-dir", stateDir],
+        output.io,
+      );
 
-    expect(code).toBe(0);
-    expect(output.stdout.join("")).toContain("pending=1");
-    const state = JSON.parse(await readFile(join(stateDir, "state.json"), "utf8"));
-    expect(state.jobs).toContainEqual(
-      expect.objectContaining({
-        sessionId: "22222222-2222-4222-8222-222222222222",
-        status: "pending",
-        scheduledRunAt: "2026-07-11T07:10:00.000Z",
-      }),
-    );
-    expect(state.jobs).not.toContainEqual(
-      expect.objectContaining({ sessionId: "33333333-3333-4333-8333-333333333333", status: "pending" }),
-    );
+      expect(code).toBe(0);
+      expect(output.stdout.join("")).toContain("pending=1");
+      const state = JSON.parse(await readFile(join(stateDir, "state.json"), "utf8"));
+      expect(state.jobs).toContainEqual(
+        expect.objectContaining({
+          sessionId: "22222222-2222-4222-8222-222222222222",
+          status: "pending",
+          scheduledRunAt: "2026-07-11T07:10:00.000Z",
+        }),
+      );
+      expect(state.jobs).not.toContainEqual(
+        expect.objectContaining({ sessionId: "33333333-3333-4333-8333-333333333333", status: "pending" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
