@@ -2,63 +2,29 @@
 
 [English](./README.md) | [中文](./README.zh-CN.md)
 
-Encore keeps local Codex work moving through usage-limit interruptions. It watches Codex sessions, schedules an automatic resume after a confirmed rate-limit reset, optionally prewarms a usage window before configured work times, and exposes local status and usage data through the terminal, tmux, cmux, and a read-only MCP plugin.
+Encore keeps Codex coding sessions moving through usage-limit interruptions. It watches local sessions, resumes work after a confirmed rate-limit reset, optionally prewarms a usage window, and exposes status and usage through the terminal, tmux, cmux, and a read-only MCP plugin.
 
-Encore is local-first. It reads `~/.codex/config.toml` and `~/.codex/sessions`, stores its own scheduler state under `~/.codex-auto`, and does not upload conversation data.
+Encore is local-first: it reads `~/.codex/config.toml` and `~/.codex/sessions`, stores scheduler state under `~/.codex-auto`, and does not upload conversation data.
 
-## What Encore Does
+## Install
 
-- Detects sessions blocked by primary or secondary Codex usage limits.
-- Schedules each affected session to resume ten minutes after the reported reset.
-- Restores the session model and reasoning effort when launching `codex resume`.
-- Cancels pending work when normal assistant activity shows that a session was resumed manually.
-- Optionally runs a low-cost prewarm probe four hours before configured work times.
-- Shows model, context, Git, cache, timing, speed, token usage, sessions, and rate limits.
-- Provides terminal output, tmux and cmux integrations, and read-only MCP tools.
+Requirements: Node.js 22.14 or newer.
 
-## Requirements
-
-- Node.js 22 or newer
-- pnpm 10
-- Codex installed and available as `codex`
-- Git for repository status
-- macOS or Linux for automatic terminal-based resume
-
-## Install From This Repository
-
-```bash
-pnpm install
-pnpm build
-install -d ~/.local/bin
-ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/encore
-encore doctor
-```
-
-Make sure `~/.local/bin` is on `PATH`. The package also publishes the legacy `codex-auto` bin name for compatibility, but new commands and documentation use `encore`.
-
-Without the symlink, replace `encore` in the examples with:
-
-```bash
-node packages/cli/dist/bin.mjs
-```
-
-## Install From npm
-
-Encore is published as the scoped package `@daguanren21/encore`; the executable remains `encore`.
-
-Run it without a global install:
+Run Encore without installing it globally:
 
 ```bash
 npx --package @daguanren21/encore encore --help
 npx --package @daguanren21/encore encore watch
 ```
 
-Or install it globally:
+Or install the scoped package globally:
 
 ```bash
 npm install --global @daguanren21/encore
 encore watch
 ```
+
+The package also provides `codex-auto` as a compatibility command. The npm package is scoped because the unscoped `encore` name is already used by another npm project.
 
 ## Quick Start
 
@@ -71,67 +37,36 @@ encore config \
   --https-proxy http://127.0.0.1:7890
 ```
 
-Start the foreground watcher and leave it running:
+Start the watcher and leave it running:
 
 ```bash
 encore watch
 ```
 
-The watcher scans local Codex sessions, reconciles resume and prewarm jobs, launches due work, and saves state under `~/.codex-auto/state.json`. Only one watcher can use a state directory at a time.
-
-Run one cycle without staying alive when checking configuration or automation:
+Run one reconciliation cycle for a quick check:
 
 ```bash
 encore watch --once
 ```
 
-Use a shorter polling interval when needed:
-
-```bash
-encore watch --interval 60
-```
-
-`--interval` is measured in seconds and defaults to `1800`.
+The watcher detects sessions blocked by primary or secondary usage limits, schedules resume ten minutes after the reported reset, restores the original model and reasoning effort, and cancels jobs when normal assistant activity shows that a session was resumed manually.
 
 ## Commands
 
-### `encore watch`
-
-Runs the resume and prewarm scheduler. Important options:
-
-```text
---once                 Run one reconciliation cycle and exit
---interval <seconds>   Polling interval; default 1800
---codex-home <path>    Codex data directory; default ~/.codex
---state-dir <path>     Encore state directory; default ~/.codex-auto
-```
-
-Automatic resume opens a new terminal on macOS or a supported terminal emulator on Linux. The resumed command uses the original session directory, model, reasoning effort, and session id.
-
-### `encore config`
-
-Writes `config.json` under the selected state directory. Configuration is non-interactive.
+### Watch and configuration
 
 ```bash
-# Set daily local work times
+encore watch                       # run the resume/prewarm watcher
+encore watch --once                # run one cycle and exit
+encore watch --interval 60         # poll every 60 seconds
 encore config --workat 10:30,14:00
-
-# Clear all work times
 encore config --clear-workat
-
-# Set proxy variables used by prewarm probes
-encore config \
-  --http-proxy http://127.0.0.1:7890 \
-  --https-proxy http://127.0.0.1:7890 \
-  --all-proxy socks5://127.0.0.1:7890
-
-# Inspect the resulting configuration
 encore config --json
 ```
 
-Each `workat` value is a local `HH:MM` time. Encore schedules a five-minute prewarm window four hours before it. The current probe uses `gpt-5.4-mini`, low reasoning, an ephemeral `Just say Hi` request, and never opens an interactive terminal. A due resume takes priority over prewarm work.
+`--state-dir` defaults to `~/.codex-auto`; `--codex-home` defaults to `~/.codex`. Each configured `workat` schedules a five-minute prewarm window four hours earlier. A due resume takes priority over prewarm work.
 
-### Status And Context
+### Status and context
 
 ```bash
 encore status
@@ -139,13 +74,12 @@ encore status --json
 encore context
 encore statusline --color always
 encore dock --color never
+encore doctor
 ```
 
-`status` renders a compact current-session line. `context` prints a detailed token and performance breakdown. `statusline` is intended for shell and tmux integrations. `dock` renders the multiline cmux view.
+These commands report the current model, context occupancy, cache ratio, Git state, timing, output speed, cumulative tokens, sessions, and available rate limits.
 
-Encore selects the newest session matching the requested working directory. If there is no exact match, it can use the nearest parent workspace session. Pass `--cwd <path>` or `--codex-home <path>` to override discovery.
-
-### Usage Reports
+### Usage reports
 
 ```bash
 encore usage --today
@@ -157,65 +91,32 @@ encore usage \
   --json
 ```
 
-Usage is calculated from complete local `last_token_usage` events and grouped by the model active for each turn. Encore reports input, cached input, output, reasoning output, total tokens, cache ratio, and session count.
+Usage is calculated from complete local token events and grouped by the model active for each turn.
 
-### Diagnostics
+## tmux
 
-```bash
-encore doctor
-encore doctor --json
-encore --help
-encore watch --help
-```
-
-`doctor` checks the Codex home, session directory, Codex config, and Git availability.
-
-## tmux Status Bar
+Install Encore's managed tmux status bar:
 
 ```bash
-pnpm build
-encore tmux install --executable "$HOME/.local/bin/encore"
+encore tmux install
 tmux source-file ~/.tmux.conf
 ```
 
-The installer manages one idempotent block in `~/.tmux.conf`, follows the active pane directory, and uses a render cache under `~/.codex-auto/statusline-cache`. Remove only the managed block with:
-
-```bash
-encore tmux uninstall
-```
-
-Manual configuration is also possible:
-
-```tmux
-set -g status-interval 10
-set -g status-right '#(encore statusline --format tmux --cache-ttl 10 --cwd #{q:pane_current_path} --width #{client_width})'
-```
+Remove only the managed block with `encore tmux uninstall`. The statusline follows the active pane directory and uses a local render cache.
 
 ## cmux Dock
 
-Install one global Dock control that follows each cmux workspace directory:
+Install a global cmux Dock control:
 
 ```bash
-encore cmux install --executable "$HOME/.local/bin/encore"
+encore cmux install
 ```
 
-Reload the Dock from cmux if it is already open. Test the same frame directly with `encore dock --color never`. Remove only Encore's managed control with:
+Reload the Dock in cmux after installation. Test the same view with `encore dock --color never`; remove it with `encore cmux uninstall`.
 
-```bash
-encore cmux uninstall
-```
+## Codex Insights MCP Plugin
 
-## Codex Insights Plugin
-
-The read-only MCP plugin is separate from the watcher and terminal displays. Build the workspace, then install or refresh the plugin from the personal marketplace:
-
-```bash
-pnpm build
-codex plugin add codex-insights@personal
-codex plugin list
-```
-
-Start a new Codex thread after reinstalling. The plugin exposes:
+The read-only MCP plugin exposes local status and usage tools without conversation content:
 
 - `get_status`
 - `get_context_stats`
@@ -223,72 +124,35 @@ Start a new Codex thread after reinstalling. The plugin exposes:
 - `get_usage_summary`
 - `list_sessions`
 
-The tools expose session metadata and aggregate usage, not conversation content.
+Install or refresh it from the personal marketplace:
 
-## Compatibility With Codex Auto-Resume
+```bash
+codex plugin add codex-insights@personal
+codex plugin list
+```
 
-Encore is the TypeScript successor to [`codex-auto-resume`](https://github.com/ayqy/codex-auto-resume). Common command mappings are:
+Start a new Codex thread after reinstalling the plugin.
 
-| Previous command | Encore command |
-| --- | --- |
-| `make run` | `encore watch` |
-| `make today` | `encore usage --today` |
-| `make usage D=2026-07-10` | `encore usage --date 2026-07-10` |
-| `make recent N=7` | `encore usage --recent 7` |
-| `make config` | `encore config ...` |
-| `make status` | `encore status` for current session status |
+## From Codex Auto-Resume
 
-The current TypeScript CLI does not yet expose the old manual availability probe, interactive configuration flow, watcher debug dashboard, or selectable silent-resume mode. Do not run the Python and TypeScript watchers against the same sessions in normal use.
+Encore is the TypeScript successor to [`codex-auto-resume`](https://github.com/ayqy/codex-auto-resume).
 
-## Workspace
-
-- `packages/core`: rollout/config readers, Git and performance snapshots, usage aggregation, and scheduling domain logic.
-- `packages/cli`: the `encore` CLI plus macOS/Linux terminal, tmux, and cmux adapters.
-- `packages/mcp-server`: the read-only MCP adapter.
-- `packages/plugins/codex-insights`: Codex plugin skills and standalone MCP bundle.
+```text
+make run                         -> encore watch
+make today                       -> encore usage --today
+make usage D=2026-07-10         -> encore usage --date 2026-07-10
+make recent N=7                 -> encore usage --recent 7
+make config                     -> encore config ...
+```
 
 ## Development
 
+The published package is the recommended user installation. To work on Encore itself:
+
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm install
 pnpm check
+pnpm build
 ```
 
-## Maintainer Release Flow
-
-Releases use Changesets and GitHub Actions. The repository publishes only `@daguanren21/encore`; the core and MCP workspace packages remain private and are bundled into the CLI.
-
-For the first release, publish locally once with Node.js 22.14+ and npm 11.5.1+, then configure npm Trusted Publishing:
-
-```bash
-npm login
-pnpm run version
-pnpm install --lockfile-only
-pnpm release
-git add .
-git commit -m "chore: release @daguanren21/encore"
-git push
-```
-
-The local publish uses your npm login only on your machine. Do not put an npm token in the repository or GitHub secrets. After `@daguanren21/encore@0.1.1` exists, open the package settings on npmjs.com and add a GitHub Actions Trusted Publisher with:
-
-- user: `daguanren21`
-- repository: `codex-auto`
-- workflow filename: `release.yml`
-- allowed action: npm publish
-
-Then every later release uses short-lived OIDC credentials from GitHub Actions and needs no npm token.
-
-For later releases, add a changeset for a user-facing change:
-
-   ```bash
-   pnpm changeset
-   ```
-
-2. Commit and push the changeset to `main`. The Release workflow opens or updates a release PR.
-3. Merge the release PR. The workflow versions the package, builds it, and publishes it to npm through OIDC.
-
-The package is configured as public through `publishConfig.access`. The release workflow requires `contents: write`, `pull-requests: write`, and `id-token: write`; it deliberately does not use an `NPM_TOKEN` secret.
+Releases use Changesets. Add a changeset with `pnpm changeset`; GitHub Actions opens a release PR and publishes later versions through npm Trusted Publishing (OIDC).
