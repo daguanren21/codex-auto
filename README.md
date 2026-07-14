@@ -42,6 +42,24 @@ Without the symlink, replace `encore` in the examples with:
 node packages/cli/dist/bin.mjs
 ```
 
+## Install From npm
+
+Encore is published as the scoped package `@daguanren21/encore`; the executable remains `encore`.
+
+Run it without a global install:
+
+```bash
+npx --package @daguanren21/encore encore --help
+npx --package @daguanren21/encore encore watch
+```
+
+Or install it globally:
+
+```bash
+npm install --global @daguanren21/encore
+encore watch
+```
+
 ## Quick Start
 
 Configure optional work times and proxy values:
@@ -238,3 +256,18 @@ pnpm test
 pnpm build
 pnpm check
 ```
+
+## Maintainer Release Flow
+
+Releases use Changesets and GitHub Actions. The repository publishes only `@daguanren21/encore`; the core and MCP workspace packages remain private and are bundled into the CLI.
+
+1. Add a changeset for a user-facing change:
+
+   ```bash
+   pnpm changeset
+   ```
+
+2. Commit and push the changeset to `main`. The Release workflow opens or updates a release PR.
+3. Merge the release PR. The workflow versions the package, builds it, and publishes it to npm.
+
+The GitHub repository needs an `NPM_TOKEN` Actions secret with publish permission for `@daguanren21/encore`. The package is configured as public through `publishConfig.access`.

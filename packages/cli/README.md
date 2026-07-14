@@ -1,6 +1,6 @@
-# @codex-auto/cli
+# @daguanren21/encore
 
-The bundled `encore` command. The legacy `codex-auto` bin name remains available for compatibility.
+The bundled `encore` command, published as `@daguanren21/encore`. The legacy `codex-auto` bin name remains available for compatibility.
 From the repository root, build with `pnpm build`; from this package directory, use
 `pnpm --filter @codex-auto/cli build`. Then run `node dist/bin.mjs --help`.
 

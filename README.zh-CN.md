@@ -42,6 +42,24 @@ encore doctor
 node packages/cli/dist/bin.mjs
 ```
 
+## 从 npm 安装
+
+Encore 发布为 scoped npm 包 `@daguanren21/encore`，安装后的命令仍然是 `encore`。
+
+不全局安装，直接运行：
+
+```bash
+npx --package @daguanren21/encore encore --help
+npx --package @daguanren21/encore encore watch
+```
+
+也可以全局安装：
+
+```bash
+npm install --global @daguanren21/encore
+encore watch
+```
+
 ## 快速开始
 
 配置可选的工作时间和代理：
@@ -238,3 +256,18 @@ pnpm test
 pnpm build
 pnpm check
 ```
+
+## 维护者发布流程
+
+项目使用 Changesets 和 GitHub Actions 发布。只有 `@daguanren21/encore` 会发布到 npm；core 和 MCP workspace 包保持私有，并在 CLI 构建时打包进去。
+
+1. 为用户可见的改动创建 changeset：
+
+   ```bash
+   pnpm changeset
+   ```
+
+2. 将 changeset 提交并推送到 `main`。Release workflow 会自动创建或更新 Release PR。
+3. 合并 Release PR。workflow 会自动更新版本、构建并发布 npm 包。
+
+GitHub 仓库需要配置名为 `NPM_TOKEN` 的 Actions secret，并授予 `@daguanren21/encore` 的发布权限。包通过 `publishConfig.access` 配置为 public。

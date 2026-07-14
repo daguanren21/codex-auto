@@ -1,8 +1,28 @@
 {
-  "name": "@codex-auto/cli",
+  "name": "@daguanren21/encore",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "description": "Keep Codex coding sessions going through usage limits.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daguanren21/codex-auto.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/daguanren21/codex-auto#readme",
+  "bugs": {
+    "url": "https://github.com/daguanren21/codex-auto/issues"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "encore": "./dist/bin.mjs",
     "codex-auto": "./dist/bin.mjs"
@@ -14,8 +34,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codex-auto/core": "workspace:*",
     "commander": "^15.0.0",
     "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@codex-auto/core": "workspace:*"
   }
 }
