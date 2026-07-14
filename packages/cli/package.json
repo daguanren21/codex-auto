@@ -1,6 +1,6 @@
 {
   "name": "@daguanren21/encore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Keep Codex coding sessions going through usage limits.",
@@ -24,8 +24,8 @@
     "node": ">=22"
   },
   "bin": {
-    "encore": "./dist/bin.mjs",
-    "codex-auto": "./dist/bin.mjs"
+    "encore": "dist/bin.mjs",
+    "codex-auto": "dist/bin.mjs"
   },
   "scripts": {
     "build": "tsdown",
