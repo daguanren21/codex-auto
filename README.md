@@ -261,13 +261,34 @@ pnpm check
 
 Releases use Changesets and GitHub Actions. The repository publishes only `@daguanren21/encore`; the core and MCP workspace packages remain private and are bundled into the CLI.
 
-1. Add a changeset for a user-facing change:
+For the first release, publish locally once with Node.js 22.14+ and npm 11.5.1+, then configure npm Trusted Publishing:
+
+```bash
+npm login
+pnpm run version
+pnpm install --lockfile-only
+pnpm release
+git add .
+git commit -m "chore: release @daguanren21/encore"
+git push
+```
+
+The local publish uses your npm login only on your machine. Do not put an npm token in the repository or GitHub secrets. After `@daguanren21/encore@0.1.1` exists, open the package settings on npmjs.com and add a GitHub Actions Trusted Publisher with:
+
+- user: `daguanren21`
+- repository: `codex-auto`
+- workflow filename: `release.yml`
+- allowed action: npm publish
+
+Then every later release uses short-lived OIDC credentials from GitHub Actions and needs no npm token.
+
+For later releases, add a changeset for a user-facing change:
 
    ```bash
    pnpm changeset
    ```
 
 2. Commit and push the changeset to `main`. The Release workflow opens or updates a release PR.
-3. Merge the release PR. The workflow versions the package, builds it, and publishes it to npm.
+3. Merge the release PR. The workflow versions the package, builds it, and publishes it to npm through OIDC.
 
-The GitHub repository needs an `NPM_TOKEN` Actions secret with publish permission for `@daguanren21/encore`. The package is configured as public through `publishConfig.access`.
+The package is configured as public through `publishConfig.access`. The release workflow requires `contents: write`, `pull-requests: write`, and `id-token: write`; it deliberately does not use an `NPM_TOKEN` secret.

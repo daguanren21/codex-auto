@@ -261,13 +261,34 @@ pnpm check
 
 项目使用 Changesets 和 GitHub Actions 发布。只有 `@daguanren21/encore` 会发布到 npm；core 和 MCP workspace 包保持私有，并在 CLI 构建时打包进去。
 
-1. 为用户可见的改动创建 changeset：
+首次发布请使用 Node.js 22.14+ 和 npm 11.5.1+ 在本地发布一次，然后配置 npm Trusted Publishing：
+
+```bash
+npm login
+pnpm run version
+pnpm install --lockfile-only
+pnpm release
+git add .
+git commit -m "chore: release @daguanren21/encore"
+git push
+```
+
+首次发布只会在你的本机使用 npm 登录状态。不要把 npm token 写入仓库或 GitHub secrets。`@daguanren21/encore@0.1.1` 发布成功后，在 npmjs.com 的包设置中添加 GitHub Actions Trusted Publisher：
+
+- user：`daguanren21`
+- repository：`codex-auto`
+- workflow filename：`release.yml`
+- allowed action：npm publish
+
+之后的版本发布都通过 GitHub Actions 的短期 OIDC 凭据完成，不再需要 npm token。
+
+后续发布时，为用户可见的改动创建 changeset：
 
    ```bash
    pnpm changeset
    ```
 
 2. 将 changeset 提交并推送到 `main`。Release workflow 会自动创建或更新 Release PR。
-3. 合并 Release PR。workflow 会自动更新版本、构建并发布 npm 包。
+3. 合并 Release PR。workflow 会自动更新版本、构建并通过 OIDC 发布 npm 包。
 
-GitHub 仓库需要配置名为 `NPM_TOKEN` 的 Actions secret，并授予 `@daguanren21/encore` 的发布权限。包通过 `publishConfig.access` 配置为 public。
+包通过 `publishConfig.access` 配置为 public。Release workflow 需要 `contents: write`、`pull-requests: write` 和 `id-token: write`，不会使用 `NPM_TOKEN` secret。
