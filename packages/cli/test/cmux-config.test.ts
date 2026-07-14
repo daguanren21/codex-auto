@@ -39,6 +39,16 @@ describe("cmux Dock config transforms", () => {
       .toBe("'/Users/test/O'\"'\"'Brien/codex-auto' dock --watch");
   });
 
+  it("uses an absolute Node runtime for JavaScript executables", () => {
+    expect(renderCmuxControl("/Users/test/codex-auto.mjs", "/Users/test/.nvm/bin/node").command)
+      .toBe("'/Users/test/.nvm/bin/node' '/Users/test/codex-auto.mjs' dock --watch");
+  });
+
+  it("pins the Dock control to the install working directory", () => {
+    expect(renderCmuxControl("/Users/test/codex-auto.mjs", "/Users/test/.nvm/bin/node", "/workspace/project").cwd)
+      .toBe("/workspace/project");
+  });
+
   it("removes only the managed control and preserves an absent file", () => {
     const installed = installCmuxControl(existing, renderCmuxControl("/bin/codex-auto"));
 

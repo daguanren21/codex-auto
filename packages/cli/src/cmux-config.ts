@@ -1,5 +1,5 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 
 import { shellQuote } from "./shell.js";
 
@@ -10,6 +10,7 @@ export interface CmuxDockControl {
   title: string;
   command: string;
   height: number;
+  cwd?: string;
   [key: string]: unknown;
 }
 
@@ -39,12 +40,21 @@ function serialize(config: CmuxDockConfig): string {
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
-export function renderCmuxControl(executable: string): CmuxDockControl {
+export function renderCmuxControl(
+  executable: string,
+  nodeExecutable = process.execPath,
+  cwd?: string,
+): CmuxDockControl {
+  const resolvedExecutable = resolve(executable);
+  const command = [".js", ".cjs", ".mjs"].includes(extname(resolvedExecutable).toLowerCase())
+    ? `${shellQuote(resolve(nodeExecutable))} ${shellQuote(resolvedExecutable)} dock --watch`
+    : `${shellQuote(resolvedExecutable)} dock --watch`;
   return {
     id: CMUX_CONTROL_ID,
     title: "Codex Insights",
-    command: `${shellQuote(resolve(executable))} dock --watch`,
+    command,
     height: 260,
+    ...(cwd ? { cwd: resolve(cwd) } : {}),
   };
 }
 

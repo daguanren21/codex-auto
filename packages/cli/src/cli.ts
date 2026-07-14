@@ -315,7 +315,11 @@ async function loadStatus(options: StatusOptions, io: CliIo): Promise<CurrentSta
 }
 
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
-  const program = new Command().name("codex-auto").exitOverride().configureOutput({
+  const program = new Command()
+    .name("encore")
+    .description("Keep Codex coding sessions going through usage limits.")
+    .exitOverride()
+    .configureOutput({
     writeOut: (value) => io.stdout(value),
     writeErr: (value) => io.stderr(value),
   });
@@ -498,7 +502,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   tmux
     .command("install")
     .option("--config <path>", "Tmux config path", join(homedir(), ".tmux.conf"))
-    .option("--executable <path>", "Absolute codex-auto executable", resolve(process.argv[1] ?? "codex-auto"))
+    .option("--executable <path>", "Absolute encore executable", resolve(process.argv[1] ?? "encore"))
     .option("--no-reload", "Do not reload the tmux config")
     .action(async (options: { config: string; executable: string; reload: boolean }) => {
       try {
@@ -538,11 +542,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   cmux
     .command("install")
     .option("--config <path>", "Global cmux Dock config path", join(homedir(), ".config", "cmux", "dock.json"))
-    .option("--executable <path>", "Absolute codex-auto executable", resolve(process.argv[1] ?? "codex-auto"))
+    .option("--executable <path>", "Absolute encore executable", resolve(process.argv[1] ?? "encore"))
     .action(async (options: { config: string; executable: string }) => {
       try {
         const source = await readOptionalFile(options.config);
-        const transformed = installCmuxControl(source, renderCmuxControl(options.executable));
+        const transformed = installCmuxControl(source, renderCmuxControl(options.executable, process.execPath, process.cwd()));
         await writeCmuxDockConfig(options.config, transformed);
         io.stdout(`installed ${options.config}\nReload an open cmux Dock with its Reload Dock action.\n`);
       } catch (error) {
@@ -587,7 +591,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     });
 
   try {
-    await program.parseAsync(["node", "codex-auto", ...argv]);
+    await program.parseAsync(["node", "encore", ...argv]);
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "commander.helpDisplayed" || code === "commander.version") return 0;

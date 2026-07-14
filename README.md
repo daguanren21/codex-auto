@@ -1,153 +1,195 @@
-# Codex Auto
+# Encore
 
-`codex-auto` is a local-first TypeScript rewrite of `codex-auto-resume`. It adds a terminal statusline and a read-only Codex plugin for context, tokens, Git, timing, speed, sessions, and rate limits.
+[English](./README.md) | [中文](./README.zh-CN.md)
 
-## Workspace
+Encore keeps local Codex work moving through usage-limit interruptions. It watches Codex sessions, schedules an automatic resume after a confirmed rate-limit reset, optionally prewarms a usage window before configured work times, and exposes local status and usage data through the terminal, tmux, cmux, and a read-only MCP plugin.
 
-- `packages/core`: rollout/config readers, Git and performance snapshots, formatting, usage aggregation, resume and prewarm scheduling.
-- `packages/cli`: bundled `codex-auto` CLI and macOS/Linux terminal adapters.
-- `packages/mcp-server`: bundled read-only MCP server.
-- `packages/plugins/codex-insights`: Codex plugin manifest, skills, and standalone MCP bundle.
+Encore is local-first. It reads `~/.codex/config.toml` and `~/.codex/sessions`, stores its own scheduler state under `~/.codex-auto`, and does not upload conversation data.
 
-Node.js 22+ and pnpm 10 are required. The commands below assume the shell is in this repository root.
+## What Encore Does
+
+- Detects sessions blocked by primary or secondary Codex usage limits.
+- Schedules each affected session to resume ten minutes after the reported reset.
+- Restores the session model and reasoning effort when launching `codex resume`.
+- Cancels pending work when normal assistant activity shows that a session was resumed manually.
+- Optionally runs a low-cost prewarm probe four hours before configured work times.
+- Shows model, context, Git, cache, timing, speed, token usage, sessions, and rate limits.
+- Provides terminal output, tmux and cmux integrations, and read-only MCP tools.
+
+## Requirements
+
+- Node.js 22 or newer
+- pnpm 10
+- Codex installed and available as `codex`
+- Git for repository status
+- macOS or Linux for automatic terminal-based resume
+
+## Install From This Repository
 
 ```bash
 pnpm install
 pnpm build
 install -d ~/.local/bin
-ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/codex-auto
-codex-auto doctor
+ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/encore
+encore doctor
 ```
 
-The symlink is optional, but it makes the examples below available as `codex-auto` from any directory. Without it, replace `codex-auto` with `node packages/cli/dist/bin.mjs`.
+Make sure `~/.local/bin` is on `PATH`. The package also publishes the legacy `codex-auto` bin name for compatibility, but new commands and documentation use `encore`.
 
-## Status And Context
+Without the symlink, replace `encore` in the examples with:
 
 ```bash
-node packages/cli/dist/bin.mjs statusline --color always
-node packages/cli/dist/bin.mjs status --json
-node packages/cli/dist/bin.mjs context
+node packages/cli/dist/bin.mjs
 ```
 
-The active rollout model is authoritative. `~/.codex/config.toml` is used only when the session does not contain model metadata, so an older `gpt-5.4` session is not mislabeled as the configured `gpt-5.6-sol` model.
+## Quick Start
 
-Token values are adaptive: raw below `1,000`, `k` below `1m`, and `m` from one million upward. Context is green below 60%, yellow from 60% to 84.9%, and bold red from 85%. Time is green below 15 seconds, yellow through 45 seconds, then red. Speed is green from 50 tok/s, yellow from 15 tok/s, then red. Model, Git, cache, output, reasoning, and totals use stable distinct colors. `NO_COLOR`, `FORCE_COLOR`, and `--color auto|always|never` are supported; JSON never contains ANSI.
-
-### cmux Dock
-
-The cmux integration is a global right-sidebar control. cmux starts one short-lived
-`codex-auto dock --watch` process per visible Dock, so there is no background daemon to
-manage. It follows the working directory of each cmux workspace.
-
-Install one global right-sidebar Dock control for every cmux workspace:
+Configure optional work times and proxy values:
 
 ```bash
-pnpm build
-codex-auto cmux install
-```
-
-The installer writes `~/.config/cmux/dock.json`, preserves unrelated controls, and replaces
-only the managed control with id `codex-auto`. Open cmux's right sidebar, switch it to **Dock**,
-and use **Reload Dock** once if the sidebar was already open during installation. The control
-renders immediately and refreshes model, Git, context, cache, timing, speed, and cumulative
-tokens every 10 seconds. It does not require tmux or a cmux socket.
-
-Check the installed control and render the same frame directly:
-
-```bash
-python3 -m json.tool ~/.config/cmux/dock.json
-codex-auto dock --color never
-cmux right-sidebar dock
-```
-
-For a different executable location or a test config, pass explicit paths:
-
-```bash
-codex-auto cmux install \
-  --config ~/.config/cmux/dock.json \
-  --executable "$HOME/.local/bin/codex-auto"
-```
-
-Render one deterministic frame for troubleshooting:
-
-```bash
-codex-auto dock --color never
-```
-
-Remove only the managed `codex-auto` control with:
-
-```bash
-codex-auto cmux uninstall
-```
-
-Uninstall removes only the `codex-auto` control and leaves the rest of the Dock configuration
-untouched. Reload the Dock after uninstalling.
-
-### Tmux Status Bar
-
-Build the CLI, make the executable available on `PATH`, and install the managed tmux block:
-
-```bash
-pnpm build
-install -d ~/.local/bin
-ln -sf "$PWD/packages/cli/dist/bin.mjs" ~/.local/bin/codex-auto
-codex-auto tmux install
-tmux source-file ~/.tmux.conf
-```
-
-Codex must be running inside tmux for the bar to be visible. The managed block follows the active pane working directory, requests a 10-second tmux refresh, and keeps a render-ready cache under `~/.codex-auto/statusline-cache`. Existing plugins may use a shorter global tmux interval; the 10-second cache still prevents rollout scans from running more often. The block is inserted before TPM initialization without changing existing plugin declarations or key bindings.
-
-The renderer supports `--format ansi|plain|tmux`, `--width`, and `--cache-ttl`. Tmux format uses native `#[...]` styles and never emits ANSI escapes. This integration is separate from Codex's native `/statusline` and from the read-only Codex Insights MCP plugin.
-
-Remove only the managed block with:
-
-```bash
-codex-auto tmux uninstall
-tmux source-file ~/.tmux.conf
-```
-
-To configure tmux manually instead, use native tmux output and pass the active pane path and client width:
-
-```tmux
-set -g status-interval 10
-set -g status-right '#(codex-auto statusline --format tmux --cache-ttl 10 --cwd #{q:pane_current_path} --width #{client_width})'
-```
-
-## Usage Totals
-
-```bash
-node packages/cli/dist/bin.mjs usage --today
-node packages/cli/dist/bin.mjs usage --date 2026-07-10
-node packages/cli/dist/bin.mjs usage --recent 7
-node packages/cli/dist/bin.mjs usage --since 2026-07-10T00:00:00+08:00 --until 2026-07-11T00:00:00+08:00 --json
-```
-
-Usage is summed from complete local `last_token_usage` events, grouped by the model active for each turn, and never uploads conversation data.
-
-## Auto Resume And Workat
-
-Configure optional proxy settings and daily work times, then run the watcher:
-
-```bash
-node packages/cli/dist/bin.mjs config \
+encore config \
   --workat 10:30,14:00 \
   --http-proxy http://127.0.0.1:7890 \
   --https-proxy http://127.0.0.1:7890
-
-node packages/cli/dist/bin.mjs watch
 ```
 
-The watcher schedules a terminal ten minutes after a confirmed reset, restores the session model and reasoning effort, and cancels jobs when normal assistant activity shows that the session was resumed manually. It uses an atomic state file and a single-process lock under `~/.codex-auto`.
+Start the foreground watcher and leave it running:
 
-Each `workat` value schedules a silent probe four hours earlier. The probe uses `gpt-5.4-mini`, low reasoning, an ephemeral `Just say Hi` request, and a five-minute execution window. A due resume always takes priority over prewarm. Use `config --clear-workat` to disable it.
+```bash
+encore watch
+```
 
-## Codex Plugin
+The watcher scans local Codex sessions, reconciles resume and prewarm jobs, launches due work, and saves state under `~/.codex-auto/state.json`. Only one watcher can use a state directory at a time.
 
-The Codex Insights MCP plugin is separate from the cmux Dock control. The Dock is a terminal
-dashboard; the Codex plugin adds read-only tools that can be called from a Codex conversation.
+Run one cycle without staying alive when checking configuration or automation:
 
-Building `@codex-auto/mcp-server` copies a standalone bundle to `packages/plugins/codex-insights/start.mjs`.
-For local development, install or refresh the plugin from the personal marketplace after building:
+```bash
+encore watch --once
+```
+
+Use a shorter polling interval when needed:
+
+```bash
+encore watch --interval 60
+```
+
+`--interval` is measured in seconds and defaults to `1800`.
+
+## Commands
+
+### `encore watch`
+
+Runs the resume and prewarm scheduler. Important options:
+
+```text
+--once                 Run one reconciliation cycle and exit
+--interval <seconds>   Polling interval; default 1800
+--codex-home <path>    Codex data directory; default ~/.codex
+--state-dir <path>     Encore state directory; default ~/.codex-auto
+```
+
+Automatic resume opens a new terminal on macOS or a supported terminal emulator on Linux. The resumed command uses the original session directory, model, reasoning effort, and session id.
+
+### `encore config`
+
+Writes `config.json` under the selected state directory. Configuration is non-interactive.
+
+```bash
+# Set daily local work times
+encore config --workat 10:30,14:00
+
+# Clear all work times
+encore config --clear-workat
+
+# Set proxy variables used by prewarm probes
+encore config \
+  --http-proxy http://127.0.0.1:7890 \
+  --https-proxy http://127.0.0.1:7890 \
+  --all-proxy socks5://127.0.0.1:7890
+
+# Inspect the resulting configuration
+encore config --json
+```
+
+Each `workat` value is a local `HH:MM` time. Encore schedules a five-minute prewarm window four hours before it. The current probe uses `gpt-5.4-mini`, low reasoning, an ephemeral `Just say Hi` request, and never opens an interactive terminal. A due resume takes priority over prewarm work.
+
+### Status And Context
+
+```bash
+encore status
+encore status --json
+encore context
+encore statusline --color always
+encore dock --color never
+```
+
+`status` renders a compact current-session line. `context` prints a detailed token and performance breakdown. `statusline` is intended for shell and tmux integrations. `dock` renders the multiline cmux view.
+
+Encore selects the newest session matching the requested working directory. If there is no exact match, it can use the nearest parent workspace session. Pass `--cwd <path>` or `--codex-home <path>` to override discovery.
+
+### Usage Reports
+
+```bash
+encore usage --today
+encore usage --date 2026-07-10
+encore usage --recent 7
+encore usage \
+  --since 2026-07-10T00:00:00+08:00 \
+  --until 2026-07-11T00:00:00+08:00 \
+  --json
+```
+
+Usage is calculated from complete local `last_token_usage` events and grouped by the model active for each turn. Encore reports input, cached input, output, reasoning output, total tokens, cache ratio, and session count.
+
+### Diagnostics
+
+```bash
+encore doctor
+encore doctor --json
+encore --help
+encore watch --help
+```
+
+`doctor` checks the Codex home, session directory, Codex config, and Git availability.
+
+## tmux Status Bar
+
+```bash
+pnpm build
+encore tmux install --executable "$HOME/.local/bin/encore"
+tmux source-file ~/.tmux.conf
+```
+
+The installer manages one idempotent block in `~/.tmux.conf`, follows the active pane directory, and uses a render cache under `~/.codex-auto/statusline-cache`. Remove only the managed block with:
+
+```bash
+encore tmux uninstall
+```
+
+Manual configuration is also possible:
+
+```tmux
+set -g status-interval 10
+set -g status-right '#(encore statusline --format tmux --cache-ttl 10 --cwd #{q:pane_current_path} --width #{client_width})'
+```
+
+## cmux Dock
+
+Install one global Dock control that follows each cmux workspace directory:
+
+```bash
+encore cmux install --executable "$HOME/.local/bin/encore"
+```
+
+Reload the Dock from cmux if it is already open. Test the same frame directly with `encore dock --color never`. Remove only Encore's managed control with:
+
+```bash
+encore cmux uninstall
+```
+
+## Codex Insights Plugin
+
+The read-only MCP plugin is separate from the watcher and terminal displays. Build the workspace, then install or refresh the plugin from the personal marketplace:
 
 ```bash
 pnpm build
@@ -155,8 +197,7 @@ codex plugin add codex-insights@personal
 codex plugin list
 ```
 
-Start a new Codex thread after reinstalling so the updated skills and MCP tools are loaded. The
-plugin exposes these read-only tools:
+Start a new Codex thread after reinstalling. The plugin exposes:
 
 - `get_status`
 - `get_context_stats`
@@ -164,15 +205,29 @@ plugin exposes these read-only tools:
 - `get_usage_summary`
 - `list_sessions`
 
-The plugin reads `~/.codex/config.toml` and `~/.codex/sessions`; it does not mutate Codex data or expose conversation content through its tools.
+The tools expose session metadata and aggregate usage, not conversation content.
 
-If `codex-insights@personal` is already installed and you are developing a local copy, use the
-Codex plugin update/reinstall flow for that marketplace instead of editing `~/.codex/config.toml`
-by hand. The plugin source is listed by the personal marketplace at `~/.agents/plugins/marketplace.json`.
+## Compatibility With Codex Auto-Resume
 
-## Migration From Python
+Encore is the TypeScript successor to [`codex-auto-resume`](https://github.com/ayqy/codex-auto-resume). Common command mappings are:
 
-The replacement for `make run` is `codex-auto watch`. The replacements for `make today`, `make usage D=...`, and `make recent N=...` are `codex-auto usage --today`, `--date`, and `--recent`. Move `config.json` values into `codex-auto config`; the TS watcher stores its own state under `~/.codex-auto`, so it can be tested alongside the Python version, but only one watcher should be left running in normal use.
+| Previous command | Encore command |
+| --- | --- |
+| `make run` | `encore watch` |
+| `make today` | `encore usage --today` |
+| `make usage D=2026-07-10` | `encore usage --date 2026-07-10` |
+| `make recent N=7` | `encore usage --recent 7` |
+| `make config` | `encore config ...` |
+| `make status` | `encore status` for current session status |
+
+The current TypeScript CLI does not yet expose the old manual availability probe, interactive configuration flow, watcher debug dashboard, or selectable silent-resume mode. Do not run the Python and TypeScript watchers against the same sessions in normal use.
+
+## Workspace
+
+- `packages/core`: rollout/config readers, Git and performance snapshots, usage aggregation, and scheduling domain logic.
+- `packages/cli`: the `encore` CLI plus macOS/Linux terminal, tmux, and cmux adapters.
+- `packages/mcp-server`: the read-only MCP adapter.
+- `packages/plugins/codex-insights`: Codex plugin skills and standalone MCP bundle.
 
 ## Development
 

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "encore": "./dist/bin.mjs",
     "codex-auto": "./dist/bin.mjs"
   },
   "scripts": {

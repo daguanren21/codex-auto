@@ -28,6 +28,16 @@ function capture() {
   };
 }
 
+describe("CLI identity", () => {
+  it("uses encore as the documented command name", async () => {
+    const output = capture();
+
+    expect(await runCli(["--help"], output.io)).toBe(0);
+    expect(output.stdout.join("")).toContain("Usage: encore");
+    expect(output.stdout.join("")).toContain("Keep Codex coding sessions going through usage limits.");
+  });
+});
+
 describe("statusline", () => {
   it("renders the current session in one ANSI-free line", async () => {
     const output = capture();

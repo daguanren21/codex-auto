@@ -34,7 +34,7 @@ export function renderDockStatus(
   if (!snapshot) return `${lines[0]}\n${colors.dim("No active Codex session")}`;
 
   if (snapshot.model) {
-    lines.push(line("Model", colors.blue([snapshot.model.name, snapshot.model.effort].filter(Boolean).join(" "))));
+    lines.push(line("Model", colors.white([snapshot.model.name, snapshot.model.effort].filter(Boolean).join(" "))));
   }
   if (snapshot.git) lines.push(line("Git", colors.magenta(gitText(snapshot.git))));
   if (snapshot.context) {

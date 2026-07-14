@@ -31,6 +31,13 @@ describe("renderDockStatus", () => {
     expect(renderDockStatus(null, { color: false })).toBe("Codex Insights\nNo active Codex session");
   });
 
+  it("uses a high-contrast color for the model value", () => {
+    const rendered = renderDockStatus(snapshot, { color: true });
+
+    expect(rendered).toContain("\u001B[37m");
+    expect(rendered).not.toContain("\u001B[34m");
+  });
+
   it.each([
     [0.7, "warn", "\u001B[33m", "70.0%"],
     [0.9, "high", "\u001B[31m", "90.0%"],
